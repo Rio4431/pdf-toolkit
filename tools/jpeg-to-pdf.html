@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JPEG to PDF Converter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #d9d4c7;
+    --accent: #8b2e2e;
+    --accent-soft: #f4ebe8;
+    --shadow: 0 1px 2px rgba(26,26,26,0.04), 0 8px 24px rgba(26,26,26,0.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Times New Roman", serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 32px 80px;
+  }
+
+  header {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 32px;
+    margin-bottom: 40px;
+  }
+
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+
+  h1 .accent {
+    color: var(--accent);
+    font-style: italic;
+  }
+
+  .subtitle {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .description {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 16px;
+    max-width: 600px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 32px;
+  }
+
+  @media (max-width: 880px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .main-area {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .dropzone {
+    background: var(--surface);
+    border: 2px dashed var(--line);
+    border-radius: 4px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .dropzone-icon {
+    font-family: "Hiragino Mincho ProN", serif;
+    font-size: 48px;
+    color: var(--accent);
+    margin-bottom: 12px;
+    line-height: 1;
+  }
+
+  .dropzone-text {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .dropzone-hint {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  #fileInput { display: none; }
+
+  .file-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .file-list-title {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .file-count {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  .file-list {
+    margin-top: 16px;
+    max-height: min(70vh, 720px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+    contain: layout paint;
+  }
+
+  .file-list-spacer {
+    position: relative;
+    width: 100%;
+    min-height: 1px;
+  }
+
+  .file-item {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: var(--virtual-item-width, 140px);
+    height: var(--virtual-item-height, 194px);
+    cursor: grab;
+    transform: translate3d(var(--virtual-x, 0px), var(--virtual-y, 0px), 0);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    will-change: transform;
+  }
+
+  .file-item:hover {
+    box-shadow: var(--shadow);
+    transform: translate3d(var(--virtual-x, 0px), calc(var(--virtual-y, 0px) - 2px), 0);
+  }
+
+  .file-item.dragging {
+    opacity: 0.4;
+  }
+
+  .file-item.drop-target {
+    border-color: var(--accent);
+    border-width: 2px;
+  }
+
+  .thumb {
+    width: 100%;
+    height: calc(var(--virtual-item-height, 194px) - 54px);
+    object-fit: cover;
+    display: block;
+    background: #eee;
+  }
+
+  .file-meta {
+    height: 54px;
+    padding: 8px 10px;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 11px;
+    border-top: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .file-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--ink);
+  }
+
+  .file-size {
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .file-index {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: var(--ink);
+    color: var(--bg);
+    font-family: -apple-system, sans-serif;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-weight: 500;
+  }
+
+  .file-actions {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .file-item:hover .file-actions { opacity: 1; }
+
+  .icon-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 2px;
+    border: none;
+    background: rgba(255,255,255,0.95);
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, sans-serif;
+  }
+
+  .icon-btn:hover { background: var(--accent); color: white; }
+
+  .empty-state {
+    text-align: center;
+    padding: 32px;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 24px;
+    height: fit-content;
+    position: sticky;
+    top: 24px;
+  }
+
+  .panel-title {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .field {
+    margin-bottom: 18px;
+  }
+
+  .field label {
+    display: block;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+
+  .field select, .field input[type=text], .field input[type=number] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    border-radius: 2px;
+  }
+
+  .field select:focus, .field input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .field-hint {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  .btn {
+    width: 100%;
+    padding: 14px 20px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-family: "Hiragino Mincho ProN", serif;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background 0.15s ease;
+    margin-top: 8px;
+  }
+
+  .btn:hover:not(:disabled) { background: #6b1f1f; }
+  .btn:disabled {
+    background: #c8c2b3;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    font-size: 13px;
+    padding: 8px 14px;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  .progress {
+    margin-top: 12px;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    min-height: 18px;
+  }
+
+  .progress-bar {
+    height: 2px;
+    background: var(--line);
+    margin-top: 6px;
+    overflow: hidden;
+    border-radius: 1px;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0;
+    transition: width 0.2s ease;
+  }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="title-row">
+      <h1>JPEG <span class="accent">to</span> PDF</h1>
+      <span class="subtitle">batch converter</span>
+    </div>
+    <p class="description">複数のJPEG画像を1つのPDFファイルに結合します。すべての処理はお使いのブラウザ内で行われ、画像はサーバーに送信されません。</p>
+  </header>
+
+  <div class="layout">
+    <div class="main-area">
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">+</div>
+        <div class="dropzone-text">画像をドロップ または クリックして選択</div>
+        <div class="dropzone-hint">JPEG / JPG（複数選択可）</div>
+        <input type="file" id="fileInput" accept="image/jpeg,image/jpg" multiple>
+      </div>
+
+      <div>
+        <div class="file-list-header">
+          <span class="file-list-title">Files</span>
+          <span class="file-count" id="fileCount">0 件</span>
+        </div>
+        <div id="fileList" class="file-list"></div>
+        <div id="emptyState" class="empty-state">まだ画像が追加されていません</div>
+      </div>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-secondary" id="clearBtn" disabled>すべて削除</button>
+        <button class="btn btn-secondary" id="sortNameBtn" disabled>ファイル名で並び替え</button>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <h2 class="panel-title">PDF Settings</h2>
+
+      <div class="field">
+        <label for="pageSize">用紙サイズ</label>
+        <select id="pageSize">
+          <option value="a4">A4</option>
+          <option value="a3">A3</option>
+          <option value="a5">A5</option>
+          <option value="letter">レター</option>
+          <option value="legal">リーガル</option>
+          <option value="fit">画像サイズに合わせる</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="orientation">向き</label>
+        <select id="orientation">
+          <option value="auto">自動（画像に合わせる）</option>
+          <option value="portrait">縦</option>
+          <option value="landscape">横</option>
+        </select>
+        <div class="field-hint">「画像サイズに合わせる」選択時は無視されます</div>
+      </div>
+
+      <div class="field">
+        <label for="margin">余白 (mm)</label>
+        <input type="number" id="margin" value="10" min="0" max="50" step="1">
+      </div>
+
+      <div class="field">
+        <label for="quality">JPEG品質</label>
+        <select id="quality">
+          <option value="1.0">最高（無圧縮）</option>
+          <option value="0.92" selected>高（推奨）</option>
+          <option value="0.8">中</option>
+          <option value="0.6">低（小サイズ）</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="filename">ファイル名</label>
+        <input type="text" id="filename" value="merged" placeholder="merged">
+        <div class="field-hint">.pdf は自動で付加されます</div>
+      </div>
+
+      <button class="btn" id="generateBtn" disabled>PDFを生成してダウンロード</button>
+      <div class="progress" id="progress"></div>
+      <div class="progress-bar" id="progressBar" style="display:none;">
+        <div class="progress-bar-fill" id="progressBarFill"></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer>
+    Client-side processing only — no upload, no tracking.
+  </footer>
+</div>
+
+<script>
+  const { jsPDF } = window.jspdf;
+
+  let files = []; // { id, file, objectUrl, thumbDataUrl, width, height, name, size }
+  let nextId = 1;
+
+  const THUMB_MAX_PX = 220;
+  const THUMB_QUALITY = 0.72;
+  const LOAD_CONCURRENCY = 4;
+  const VIRTUAL_MIN_ITEM_WIDTH = 140;
+  const VIRTUAL_GAP = 12;
+  const VIRTUAL_META_HEIGHT = 54;
+  const VIRTUAL_OVERSCAN_ROWS = 2;
+
+  let virtualRenderQueued = false;
+
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const fileListEl = document.getElementById('fileList');
+  const fileCountEl = document.getElementById('fileCount');
+  const emptyStateEl = document.getElementById('emptyState');
+  const generateBtn = document.getElementById('generateBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const sortNameBtn = document.getElementById('sortNameBtn');
+  const progressEl = document.getElementById('progress');
+  const progressBarEl = document.getElementById('progressBar');
+  const progressBarFillEl = document.getElementById('progressBarFill');
+
+  // Drop & select
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+  });
+
+  dropzone.addEventListener('dragleave', () => {
+    dropzone.classList.remove('drag-over');
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+    fileInput.value = '';
+  });
+
+  fileListEl.addEventListener('scroll', scheduleVirtualRender);
+  window.addEventListener('resize', scheduleVirtualRender);
+
+  if ('ResizeObserver' in window) {
+    new ResizeObserver(scheduleVirtualRender).observe(fileListEl);
+  }
+
+  async function handleFiles(fileList) {
+    const newOnes = Array.from(fileList).filter(f =>
+      f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name)
+    );
+
+    if (newOnes.length === 0) {
+      showProgress('JPEGファイルが見つかりませんでした');
+      return;
+    }
+
+    showProgress('画像を読み込み中...');
+    setProgressBar(0);
+
+    const loadedItems = [];
+    let done = 0;
+
+    for (let i = 0; i < newOnes.length; i += LOAD_CONCURRENCY) {
+      const chunk = newOnes.slice(i, i + LOAD_CONCURRENCY);
+      const results = await Promise.all(chunk.map(async (file) => {
+        try {
+          return await readImageFile(file);
+        } catch (err) {
+          console.error('Failed to read', file.name, err);
+          return null;
+        } finally {
+          done++;
+          showProgress(`画像を読み込み中... ${done} / ${newOnes.length}`);
+          setProgressBar(done / newOnes.length);
+        }
+      }));
+
+      loadedItems.push(...results.filter(Boolean));
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    files.push(...loadedItems);
+    showProgress('');
+    setProgressBar(null);
+    render();
+  }
+
+  function readImageFile(file) {
+    return new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.decoding = 'async';
+
+      img.onload = () => {
+        try {
+          const width = img.naturalWidth;
+          const height = img.naturalHeight;
+          const thumbDataUrl = makeThumbnail(img, width, height);
+
+          resolve({
+            id: nextId++,
+            file,
+            objectUrl,
+            thumbDataUrl,
+            width,
+            height,
+            name: file.name,
+            size: file.size
+          });
+        } catch (err) {
+          URL.revokeObjectURL(objectUrl);
+          reject(err);
+        }
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Image decode failed'));
+      };
+
+      img.src = objectUrl;
+    });
+  }
+
+  function makeThumbnail(img, width, height) {
+    const scale = Math.min(1, THUMB_MAX_PX / Math.max(width, height));
+    const thumbW = Math.max(1, Math.round(width * scale));
+    const thumbH = Math.max(1, Math.round(height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = thumbW;
+    canvas.height = thumbH;
+
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'medium';
+    ctx.drawImage(img, 0, 0, thumbW, thumbH);
+
+    return canvas.toDataURL('image/jpeg', THUMB_QUALITY);
+  }
+
+  function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(2) + ' MB';
+  }
+
+  function render() {
+    fileCountEl.textContent = files.length + ' 件';
+    emptyStateEl.style.display = files.length === 0 ? 'block' : 'none';
+    fileListEl.style.display = files.length === 0 ? 'none' : 'block';
+
+    const has = files.length > 0;
+    generateBtn.disabled = !has;
+    clearBtn.disabled = !has;
+    sortNameBtn.disabled = !has;
+
+    if (!has) {
+      fileListEl.innerHTML = '';
+      return;
+    }
+
+    renderVirtualList();
+  }
+
+  function scheduleVirtualRender() {
+    if (virtualRenderQueued) return;
+    virtualRenderQueued = true;
+    requestAnimationFrame(() => {
+      virtualRenderQueued = false;
+      if (files.length > 0) renderVirtualList();
+    });
+  }
+
+  function getVirtualLayout() {
+    const availableW = Math.max(1, fileListEl.clientWidth);
+    const columns = Math.max(1, Math.floor((availableW + VIRTUAL_GAP) / (VIRTUAL_MIN_ITEM_WIDTH + VIRTUAL_GAP)));
+    const itemW = Math.floor((availableW - VIRTUAL_GAP * (columns - 1)) / columns);
+    const itemH = itemW + VIRTUAL_META_HEIGHT;
+    const rowH = itemH + VIRTUAL_GAP;
+
+    return { columns, itemW, itemH, rowH };
+  }
+
+  function renderVirtualList() {
+    if (files.length === 0) {
+      fileListEl.innerHTML = '';
+      return;
+    }
+
+    const layout = getVirtualLayout();
+    const rowCount = Math.ceil(files.length / layout.columns);
+    const totalHeight = Math.max(1, rowCount * layout.rowH - VIRTUAL_GAP);
+    const viewportH = fileListEl.clientHeight || Math.min(Math.round(window.innerHeight * 0.7), 720);
+    const scrollTop = fileListEl.scrollTop;
+
+    const startRow = Math.max(0, Math.floor(scrollTop / layout.rowH) - VIRTUAL_OVERSCAN_ROWS);
+    const endRow = Math.min(rowCount - 1, Math.ceil((scrollTop + viewportH) / layout.rowH) + VIRTUAL_OVERSCAN_ROWS);
+    const startIdx = startRow * layout.columns;
+    const endIdx = Math.min(files.length - 1, (endRow + 1) * layout.columns - 1);
+
+    const spacer = document.createElement('div');
+    spacer.className = 'file-list-spacer';
+    spacer.style.height = totalHeight + 'px';
+
+    const fragment = document.createDocumentFragment();
+    for (let i = startIdx; i <= endIdx; i++) {
+      fragment.appendChild(createFileElement(files[i], i, layout));
+    }
+    spacer.appendChild(fragment);
+
+    fileListEl.innerHTML = '';
+    fileListEl.appendChild(spacer);
+  }
+
+  function createFileElement(item, idx, layout) {
+    const col = idx % layout.columns;
+    const row = Math.floor(idx / layout.columns);
+    const x = col * (layout.itemW + VIRTUAL_GAP);
+    const y = row * layout.rowH;
+
+    const el = document.createElement('div');
+    el.className = 'file-item';
+    el.draggable = true;
+    el.dataset.id = item.id;
+    el.style.setProperty('--virtual-x', x + 'px');
+    el.style.setProperty('--virtual-y', y + 'px');
+    el.style.setProperty('--virtual-item-width', layout.itemW + 'px');
+    el.style.setProperty('--virtual-item-height', layout.itemH + 'px');
+    el.innerHTML = `
+      <span class="file-index">${idx + 1}</span>
+      <div class="file-actions">
+        <button class="icon-btn" data-action="up" title="前へ">↑</button>
+        <button class="icon-btn" data-action="down" title="後へ">↓</button>
+        <button class="icon-btn" data-action="remove" title="削除">×</button>
+      </div>
+      <img class="thumb" src="${item.thumbDataUrl}" alt="" loading="lazy" decoding="async">
+      <div class="file-meta">
+        <div class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+        <div class="file-size">${item.width}×${item.height} · ${formatBytes(item.size)}</div>
+      </div>
+    `;
+
+    el.querySelector('[data-action=up]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveItem(idx, idx - 1);
+    });
+    el.querySelector('[data-action=down]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveItem(idx, idx + 1);
+    });
+    el.querySelector('[data-action=remove]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeItem(idx);
+    });
+
+    el.addEventListener('dragstart', (e) => {
+      el.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', String(item.id));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      document.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'));
+    });
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drop-target');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      el.classList.remove('drop-target');
+      const draggedId = Number(e.dataTransfer.getData('text/plain'));
+      const fromIdx = files.findIndex(f => f.id === draggedId);
+      const toIdx = files.findIndex(f => f.id === item.id);
+      if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
+        const [moved] = files.splice(fromIdx, 1);
+        files.splice(toIdx, 0, moved);
+        render();
+      }
+    });
+
+    return el;
+  }
+
+  function moveItem(from, to) {
+    if (to < 0 || to >= files.length) return;
+    const [item] = files.splice(from, 1);
+    files.splice(to, 0, item);
+    render();
+  }
+
+  function removeItem(idx) {
+    const [removed] = files.splice(idx, 1);
+    if (removed?.objectUrl) URL.revokeObjectURL(removed.objectUrl);
+    render();
+  }
+
+  function releaseAllFiles() {
+    files.forEach(item => {
+      if (item.objectUrl) URL.revokeObjectURL(item.objectUrl);
+    });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  clearBtn.addEventListener('click', () => {
+    if (files.length === 0) return;
+    if (confirm('すべての画像を削除しますか？')) {
+      releaseAllFiles();
+      files = [];
+      render();
+    }
+  });
+
+  sortNameBtn.addEventListener('click', () => {
+    files.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true, sensitivity: 'base' }));
+    render();
+  });
+
+  function showProgress(text) {
+    progressEl.textContent = text || '';
+  }
+
+  function setProgressBar(ratio) {
+    if (ratio == null) {
+      progressBarEl.style.display = 'none';
+      progressBarFillEl.style.width = '0%';
+    } else {
+      progressBarEl.style.display = 'block';
+      progressBarFillEl.style.width = (ratio * 100).toFixed(1) + '%';
+    }
+  }
+
+  generateBtn.addEventListener('click', async () => {
+    if (files.length === 0) return;
+
+    generateBtn.disabled = true;
+    clearBtn.disabled = true;
+    sortNameBtn.disabled = true;
+
+    const pageSize = document.getElementById('pageSize').value;
+    const orientationOpt = document.getElementById('orientation').value;
+    const margin = Math.max(0, parseFloat(document.getElementById('margin').value) || 0);
+    const quality = parseFloat(document.getElementById('quality').value);
+    const filenameRaw = (document.getElementById('filename').value || 'merged').trim();
+    const filename = (filenameRaw.replace(/\.pdf$/i, '') || 'merged') + '.pdf';
+
+    try {
+      showProgress('PDFを生成中...');
+      setProgressBar(0);
+
+      // First image determines initial page
+      const first = files[0];
+      const firstOrientation = decideOrientation(first, orientationOpt);
+      const firstFormat = pageSize === 'fit' ? imageMmFormat(first) : pageSize;
+
+      const pdf = new jsPDF({
+        orientation: firstOrientation,
+        unit: 'mm',
+        format: firstFormat,
+        compress: true
+      });
+
+      for (let i = 0; i < files.length; i++) {
+        const item = files[i];
+        if (i > 0) {
+          const orient = decideOrientation(item, orientationOpt);
+          const format = pageSize === 'fit' ? imageMmFormat(item) : pageSize;
+          pdf.addPage(format, orient);
+        }
+
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+
+        let usableW, usableH, offsetX, offsetY;
+        if (pageSize === 'fit') {
+          usableW = pageW;
+          usableH = pageH;
+          offsetX = 0;
+          offsetY = 0;
+        } else {
+          usableW = pageW - margin * 2;
+          usableH = pageH - margin * 2;
+          offsetX = margin;
+          offsetY = margin;
+        }
+
+        // Compute scaled dims preserving aspect ratio
+        const imgRatio = item.width / item.height;
+        const boxRatio = usableW / usableH;
+        let drawW, drawH;
+        if (imgRatio > boxRatio) {
+          drawW = usableW;
+          drawH = usableW / imgRatio;
+        } else {
+          drawH = usableH;
+          drawW = usableH * imgRatio;
+        }
+        const x = offsetX + (usableW - drawW) / 2;
+        const y = offsetY + (usableH - drawH) / 2;
+
+        // Re-encode to control quality / output size
+        const encodedDataUrl = await reencodeJpeg(item, quality);
+
+        pdf.addImage(encodedDataUrl, 'JPEG', x, y, drawW, drawH, undefined, 'FAST');
+
+        setProgressBar((i + 1) / files.length);
+        showProgress(`PDFを生成中... ${i + 1} / ${files.length}`);
+        // Yield to UI
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      pdf.save(filename);
+      showProgress(`完了: ${filename}`);
+      setTimeout(() => setProgressBar(null), 800);
+    } catch (err) {
+      console.error(err);
+      showProgress('エラーが発生しました: ' + err.message);
+      setProgressBar(null);
+    } finally {
+      generateBtn.disabled = false;
+      clearBtn.disabled = false;
+      sortNameBtn.disabled = false;
+    }
+  });
+
+  function decideOrientation(item, opt) {
+    if (opt === 'portrait') return 'p';
+    if (opt === 'landscape') return 'l';
+    return item.width > item.height ? 'l' : 'p';
+  }
+
+  function imageMmFormat(item) {
+    // Convert px to mm at 96dpi: 1in = 25.4mm, 96px = 1in
+    const mmPerPx = 25.4 / 96;
+    return [item.width * mmPerPx, item.height * mmPerPx];
+  }
+
+  function reencodeJpeg(item, quality) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = item.width;
+          canvas.height = item.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          // If quality is 1.0, we still want to keep JPEG (jsPDF expects JPEG here)
+          const out = canvas.toDataURL('image/jpeg', quality);
+          resolve(out);
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('reencode failed'));
+      img.src = item.objectUrl;
+    });
+  }
+
+  window.addEventListener('beforeunload', releaseAllFiles);
+
+  render();
+</script>
+<script src="../assets/i18n.js"></script>
+</body>
+</html>
