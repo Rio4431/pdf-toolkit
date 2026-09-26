@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF OCR — 検索可能PDF変換</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #d9d4c7;
+    --accent: #8b2e2e;
+    --accent-soft: #f4ebe8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Times New Roman", serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  .container { max-width: 1000px; margin: 0 auto; padding: 48px 32px 80px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 32px; margin-bottom: 40px; }
+  .title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  h1 { font-size: clamp(28px, 4vw, 44px); font-weight: 400; letter-spacing: -0.01em; margin: 0; }
+  h1 .accent { color: var(--accent); font-style: italic; }
+  .subtitle, .description, .file-card .meta, .panel-title, .field label, .field select, .field input, .field-hint,
+  .progress-text, .page-cell, .preview-head, .preview-body, .note, footer, .btn-secondary, .download-link, .checkline {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  }
+  .subtitle { font-size: 13px; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; }
+  .description { font-size: 14px; color: var(--muted); margin-top: 16px; max-width: 700px; }
+  .dropzone {
+    background: var(--surface); border: 2px dashed var(--line); border-radius: 4px; padding: 56px 24px;
+    text-align: center; cursor: pointer; transition: all 0.2s ease; margin-bottom: 32px;
+  }
+  .dropzone:hover, .dropzone.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone-icon { font-size: 48px; color: var(--accent); margin-bottom: 12px; line-height: 1; }
+  .dropzone-text { font-size: 16px; margin-bottom: 6px; }
+  .dropzone-hint { font-family: -apple-system, "Helvetica Neue", sans-serif; font-size: 13px; color: var(--muted); }
+  #fileInput { display: none; }
+  .file-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 20px 24px; margin-bottom: 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .file-card .fname { font-size: 15px; color: var(--ink); word-break: break-all; }
+  .file-card .fsub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 24px; margin-bottom: 24px; }
+  .panel-title { font-size: 12px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 13px; color: var(--ink); margin-bottom: 6px; }
+  .field select, .field input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); background: var(--bg); font-size: 14px; color: var(--ink); border-radius: 2px; }
+  .field select:focus, .field input:focus { outline: none; border-color: var(--accent); }
+  .field-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink); }
+  .checkline input { margin-top: 3px; }
+  .btn { width: 100%; padding: 14px 20px; border: none; background: var(--accent); color: white; font-size: 16px; cursor: pointer; border-radius: 2px; transition: background 0.15s ease; }
+  .btn:hover:not(:disabled) { background: #6b1f1f; }
+  .btn:disabled { background: #c8c2b3; cursor: not-allowed; }
+  .btn-secondary { background: transparent; color: var(--muted); border: 1px solid var(--line); font-size: 13px; padding: 9px 16px; width: auto; }
+  .btn-secondary:hover:not(:disabled) { background: var(--bg); color: var(--ink); border-color: var(--ink); }
+  .progress-area { margin-top: 20px; }
+  .progress-text { font-size: 13px; color: var(--muted); text-align: center; min-height: 20px; margin-bottom: 8px; white-space: pre-wrap; }
+  .progress-bar { height: 4px; background: var(--line); overflow: hidden; border-radius: 2px; display: none; }
+  .progress-bar-fill { height: 100%; background: var(--accent); width: 0; transition: width 0.3s ease; }
+  .page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 4px; margin-top: 16px; }
+  .page-cell { aspect-ratio: 1; border-radius: 2px; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--muted); transition: background 0.2s, color 0.2s; }
+  .page-cell.processing { background: #d9a441; color: white; }
+  .page-cell.done { background: var(--accent); color: white; }
+  .page-cell.error { background: #555; color: white; }
+  .preview-wrap { margin-top: 24px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--surface); display: none; }
+  .preview-head { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  .preview-body { padding: 16px; max-height: 280px; overflow-y: auto; font-size: 13px; color: var(--ink); white-space: pre-wrap; line-height: 1.7; }
+  .download-link { display: none; margin-top: 16px; text-align: center; font-size: 14px; }
+  .download-link a { color: var(--accent); }
+  .hidden { display: none !important; }
+  .note { background: var(--accent-soft); border: 1px solid #e4cfc9; border-radius: 3px; padding: 12px 16px; font-size: 12px; color: #6b3a36; margin-bottom: 24px; line-height: 1.6; }
+  footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="title-row">
+      <h1>PDF <span class="accent">OCR</span></h1>
+      <span class="subtitle">searchable pdf</span>
+    </div>
+    <p class="description">スキャンされたPDFを、文字を検索・選択できるPDFに変換します。安全出力では各ページを画像として新PDFに貼り直し、その上にOCR文字レイヤーを重ねます。すべての処理はブラウザ内で完結し、ファイルはサーバーに送信されません。</p>
+  </header>
+
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-icon">+</div>
+    <div class="dropzone-text">PDFをドロップ または クリックして選択</div>
+    <div class="dropzone-hint">PDF ファイル（1ファイル）</div>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf">
+  </div>
+
+  <div id="editorSection" class="hidden">
+    <div class="file-card">
+      <div class="meta">
+        <div class="fname" id="fileName">—</div>
+        <div class="fsub" id="fileSub">—</div>
+      </div>
+      <button class="btn btn-secondary" id="resetFileBtn">別のファイルを開く</button>
+    </div>
+
+    <div class="note">
+      処理中はタブを閉じないでください。空白PDF対策として、既定では「安全出力」を使います。この方式は元ページを画像化して新PDFに貼り直すため、元PDFをそのまま再保存する方式より空白化しにくいです。
+    </div>
+
+    <div class="panel">
+      <h2 class="panel-title">OCR Settings</h2>
+
+      <div class="field">
+        <label for="lang">認識言語</label>
+        <select id="lang">
+          <option value="jpn+eng" selected>日本語 + 英語</option>
+          <option value="jpn">日本語のみ</option>
+          <option value="eng">英語のみ</option>
+        </select>
+        <div class="field-hint">混在する文書は「日本語 + 英語」が無難です</div>
+      </div>
+
+      <div class="field">
+        <label for="dpi">レンダリング解像度</label>
+        <select id="dpi">
+          <option value="1.25" selected>標準（メモリ節約・推奨）</option>
+          <option value="1.75">高</option>
+          <option value="2.25">最高（重い）</option>
+        </select>
+        <div class="field-hint">空白化やメモリ不足が出る場合は標準を使ってください</div>
+      </div>
+
+      <div class="field">
+        <label for="parallelism">並列処理</label>
+        <select id="parallelism">
+          <option value="1">安定（1ページずつ）</option>
+          <option value="2" selected>高速（2ページ並列・推奨）</option>
+          <option value="3">より高速（3ページ並列・メモリ多め）</option>
+          <option value="4">最大（4ページ並列・重い）</option>
+        </select>
+        <div class="field-hint">枚数が多いPDFでは2〜3並列が有効です。メモリ不足時は1に戻してください。</div>
+      </div>
+
+      <div class="field">
+        <label for="outputMode">出力方式</label>
+        <select id="outputMode">
+          <option value="raster" selected>安全出力（ページ画像として新PDFに再構成）</option>
+          <option value="preserve">元PDF保持（軽量だがPDFによって空白化する場合あり）</option>
+        </select>
+        <div class="field-hint">「保存したPDFが空白」になる場合は安全出力を使ってください</div>
+      </div>
+
+      <div class="field">
+        <label for="jpegQuality">安全出力の画像品質</label>
+        <select id="jpegQuality">
+          <option value="0.82">軽量</option>
+          <option value="0.9" selected>標準</option>
+          <option value="0.96">高品質（ファイル大）</option>
+        </select>
+        <div class="field-hint">スキャン文書では標準で十分な場合が多いです</div>
+      </div>
+
+      <div class="field">
+        <label class="checkline"><input type="checkbox" id="visibleTextDebug"> OCR文字レイヤーを薄く表示する（確認用）</label>
+        <div class="field-hint">通常はオフにしてください。検索できない場合の確認用です。</div>
+      </div>
+
+      <div class="field">
+        <label for="filename">出力ファイル名</label>
+        <input type="text" id="filename" value="ocr_output" placeholder="ocr_output">
+        <div class="field-hint">.pdf は自動で付加されます</div>
+      </div>
+    </div>
+
+    <button class="btn" id="runBtn">OCRを実行して検索可能PDFを生成</button>
+
+    <div class="progress-area">
+      <div class="progress-text" id="progressText"></div>
+      <div class="progress-bar" id="progressBar"><div class="progress-bar-fill" id="progressBarFill"></div></div>
+      <div class="page-grid" id="pageGrid"></div>
+      <div class="download-link" id="downloadLink"></div>
+    </div>
+
+    <div class="preview-wrap" id="previewWrap">
+      <div class="preview-head">認識テキスト（先頭ページのプレビュー）</div>
+      <div class="preview-body" id="previewBody"></div>
+    </div>
+  </div>
+
+  <footer>Client-side processing only — no upload, no tracking. Powered by Tesseract.js, pdf.js &amp; pdf-lib.</footer>
+</div>
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const MAX_CANVAS_PIXELS = 8_000_000;
+
+  let pdfBytesRaw = null;       // Original ArrayBuffer. Do not hand this directly to pdf.js.
+  let pdfJsDoc = null;          // pdf.js document used only for rendering.
+  let totalPages = 0;
+  let fileBaseName = 'ocr_output';
+  let lastDownloadUrl = null;
+
+  const dropzone      = document.getElementById('dropzone');
+  const fileInput     = document.getElementById('fileInput');
+  const editorSection = document.getElementById('editorSection');
+  const fileNameEl    = document.getElementById('fileName');
+  const fileSubEl     = document.getElementById('fileSub');
+  const resetFileBtn  = document.getElementById('resetFileBtn');
+  const langSel       = document.getElementById('lang');
+  const dpiSel        = document.getElementById('dpi');
+  const parallelSel   = document.getElementById('parallelism');
+  const outputModeSel = document.getElementById('outputMode');
+  const jpegQualitySel= document.getElementById('jpegQuality');
+  const debugTextChk  = document.getElementById('visibleTextDebug');
+  const runBtn        = document.getElementById('runBtn');
+  const progressText  = document.getElementById('progressText');
+  const progressBar   = document.getElementById('progressBar');
+  const progressFill  = document.getElementById('progressBarFill');
+  const pageGrid      = document.getElementById('pageGrid');
+  const previewWrap   = document.getElementById('previewWrap');
+  const previewBody   = document.getElementById('previewBody');
+  const downloadLink  = document.getElementById('downloadLink');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name))) loadFile(f);
+  });
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) loadFile(f);
+    fileInput.value = '';
+  });
+
+  resetFileBtn.addEventListener('click', async () => resetState(true));
+
+  function fmtBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(2) + ' MB';
+  }
+
+  async function resetState(showDropzone) {
+    if (pdfJsDoc) { try { await pdfJsDoc.destroy(); } catch (_) {} }
+    pdfJsDoc = null;
+    pdfBytesRaw = null;
+    totalPages = 0;
+    if (lastDownloadUrl) { URL.revokeObjectURL(lastDownloadUrl); lastDownloadUrl = null; }
+    downloadLink.style.display = 'none';
+    downloadLink.innerHTML = '';
+    editorSection.classList.add('hidden');
+    if (showDropzone) dropzone.classList.remove('hidden');
+    pageGrid.innerHTML = '';
+    previewWrap.style.display = 'none';
+    previewBody.textContent = '';
+    progressText.textContent = '';
+    progressBar.style.display = 'none';
+    progressFill.style.width = '0%';
+    runBtn.disabled = false;
+  }
+
+  async function loadFile(file) {
+    try {
+      await resetState(false);
+      progressText.textContent = 'PDFを読み込み中...';
+      pdfBytesRaw = await file.arrayBuffer();
+
+      // pdf.js can detach/consume the supplied buffer. Always pass a private copy.
+      const pdfJsBytes = new Uint8Array(pdfBytesRaw.slice(0));
+      pdfJsDoc = await pdfjsLib.getDocument({ data: pdfJsBytes }).promise;
+      totalPages = pdfJsDoc.numPages;
+
+      fileBaseName = file.name.replace(/\.pdf$/i, '');
+      document.getElementById('filename').value = fileBaseName + '_ocr';
+      fileNameEl.textContent = file.name;
+      fileSubEl.textContent  = `${totalPages} ページ · ${fmtBytes(file.size)}`;
+
+      buildPageGrid();
+      dropzone.classList.add('hidden');
+      editorSection.classList.remove('hidden');
+      progressText.textContent = '';
+    } catch (err) {
+      progressText.textContent = 'エラー: ' + (err && err.message ? err.message : String(err));
+      console.error(err);
+    }
+  }
+
+  function buildPageGrid() {
+    pageGrid.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    for (let i = 1; i <= totalPages; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'page-cell';
+      cell.id = 'cell-' + i;
+      cell.textContent = i;
+      frag.appendChild(cell);
+    }
+    pageGrid.appendChild(frag);
+  }
+
+  function setCell(pageNum, state) {
+    const cell = document.getElementById('cell-' + pageNum);
+    if (cell) cell.className = 'page-cell ' + state;
+  }
+
+  function tick(ms = 0) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function canvasToBlob(canvas, type, quality) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error('canvas を画像化できませんでした'));
+      }, type, quality);
+    });
+  }
+
+  async function renderPageToCanvas(pageNum, baseScale) {
+    if (!pdfJsDoc) throw new Error('PDFが読み込まれていません');
+
+    const page = await pdfJsDoc.getPage(pageNum);
+    const viewport1 = page.getViewport({ scale: 1 });
+    const maxScaleByPixels = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, viewport1.width * viewport1.height));
+    let scale = Math.min(baseScale, maxScaleByPixels);
+    if (!Number.isFinite(scale) || scale <= 0) scale = 1;
+
+    try {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const vp = page.getViewport({ scale });
+        const w = Math.max(1, Math.floor(vp.width));
+        const h = Math.max(1, Math.floor(vp.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        try {
+          const ctx = canvas.getContext('2d', { alpha: false });
+          ctx.save();
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.restore();
+          const task = page.render({ canvasContext: ctx, viewport: vp });
+          await task.promise;
+          return { canvas, scale, pageWidthPt: viewport1.width, pageHeightPt: viewport1.height };
+        } catch (e) {
+          canvas.width = 1;
+          canvas.height = 1;
+          console.warn(`page ${pageNum} render at scale ${scale} failed`, e);
+          scale /= 2;
+          await tick(40);
+        }
+      }
+      throw new Error('ページの描画に失敗しました');
+    } finally {
+      try { page.cleanup(); } catch (_) {}
+    }
+  }
+
+  function collectWords(data) {
+    const out = [];
+    if (Array.isArray(data.words) && data.words.length) {
+      for (const w of data.words) {
+        if (w && w.bbox && w.text) out.push({ text: w.text, bbox: normalizeBbox(w.bbox) });
+      }
+      if (out.length) return out;
+    }
+    const blocks = data.blocks || [];
+    for (const block of blocks) {
+      const paragraphs = block.paragraphs || [];
+      for (const para of paragraphs) {
+        const lines = para.lines || [];
+        for (const line of lines) {
+          const words = line.words || [];
+          for (const w of words) {
+            if (w && w.bbox && w.text) out.push({ text: w.text, bbox: normalizeBbox(w.bbox) });
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  function normalizeBbox(bbox) {
+    // Tesseract.js normally returns {x0,y0,x1,y1}. Keep a fallback for array-like output.
+    if (Array.isArray(bbox)) return { x0: bbox[0], y0: bbox[1], x1: bbox[2], y1: bbox[3] };
+    return bbox;
+  }
+
+  function drawTextLayer(pdfPage, words, scale, font, rgb, debugVisible) {
+    const ph = pdfPage.getHeight();
+    const textOpacity = debugVisible ? 0.28 : 0;
+    for (const word of words) {
+      const text = (word.text || '').trim();
+      if (!text) continue;
+      const { x0, y0, x1, y1 } = word.bbox || {};
+      if (![x0, y0, x1, y1].every(Number.isFinite)) continue;
+
+      const wPt = (x1 - x0) / scale;
+      const hPt = (y1 - y0) / scale;
+      if (wPt <= 0 || hPt <= 0) continue;
+
+      const pdfX = x0 / scale;
+      const pdfY = ph - (y1 / scale);
+      let fontSize = Math.max(1, hPt * 0.9);
+      try {
+        const naturalW = font.widthOfTextAtSize(text, fontSize);
+        if (naturalW > wPt && naturalW > 0) fontSize *= wPt / naturalW;
+      } catch (_) {}
+      fontSize = Math.max(1, fontSize);
+
+      try {
+        pdfPage.drawText(text, {
+          x: pdfX,
+          y: pdfY,
+          size: fontSize,
+          font,
+          color: debugVisible ? rgb(0.65, 0, 0) : rgb(0, 0, 0),
+          opacity: textOpacity
+        });
+      } catch (_) {
+        // Skip unencodable text instead of aborting the whole page.
+      }
+    }
+  }
+
+  function getParallelCount() {
+    const selected = parseInt(parallelSel.value, 10);
+    const safeSelected = Number.isFinite(selected) ? selected : 1;
+    return Math.max(1, Math.min(4, safeSelected, totalPages || 1));
+  }
+
+  async function createOcrWorkers(lang, count) {
+    const workers = [];
+    for (let i = 0; i < count; i++) {
+      progressText.textContent = `OCRエンジンを初期化中... ${i + 1} / ${count}`;
+      const worker = await Tesseract.createWorker(lang, 1);
+      workers.push(worker);
+      await tick(0);
+    }
+    return workers;
+  }
+
+  async function terminateOcrWorkers(workers) {
+    await Promise.all((workers || []).map(async worker => {
+      try { await worker.terminate(); } catch (_) {}
+    }));
+  }
+
+  async function processPageWithWorker(pageNum, worker, opts) {
+    setCell(pageNum, 'processing');
+    const rendered = await renderPageToCanvas(pageNum, opts.baseScale);
+    const { canvas, scale, pageWidthPt, pageHeightPt } = rendered;
+
+    try {
+      const { data } = await worker.recognize(canvas, {}, { blocks: true });
+      const words = collectWords(data);
+      let jpgBytes = null;
+
+      if (opts.outputMode === 'raster') {
+        const jpgBlob = await canvasToBlob(canvas, 'image/jpeg', opts.jpegQuality);
+        jpgBytes = new Uint8Array(await jpgBlob.arrayBuffer());
+      }
+
+      return {
+        pageNum,
+        text: (data.text || '').trim(),
+        words,
+        scale,
+        pageWidthPt,
+        pageHeightPt,
+        jpgBytes
+      };
+    } finally {
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+  }
+
+  function setControlsDisabled(disabled) {
+    runBtn.disabled = disabled;
+    resetFileBtn.disabled = disabled;
+    langSel.disabled = disabled;
+    dpiSel.disabled = disabled;
+    parallelSel.disabled = disabled;
+    outputModeSel.disabled = disabled;
+    jpegQualitySel.disabled = disabled;
+    debugTextChk.disabled = disabled;
+  }
+
+  runBtn.addEventListener('click', async () => {
+    if (!pdfBytesRaw || !pdfJsDoc) {
+      progressText.textContent = 'PDFが読み込まれていません';
+      return;
+    }
+
+    setControlsDisabled(true);
+    previewWrap.style.display = 'none';
+    downloadLink.style.display = 'none';
+    downloadLink.innerHTML = '';
+    if (lastDownloadUrl) { URL.revokeObjectURL(lastDownloadUrl); lastDownloadUrl = null; }
+    progressBar.style.display = 'block';
+    progressFill.style.width = '0%';
+
+    const lang = langSel.value;
+    const baseScale = parseFloat(dpiSel.value);
+    const outputMode = outputModeSel.value;
+    const jpegQuality = parseFloat(jpegQualitySel.value);
+    const debugVisible = debugTextChk.checked;
+    const workerCount = getParallelCount();
+
+    let workers = [];
+    try {
+      workers = await createOcrWorkers(lang, workerCount);
+
+      const { PDFDocument, rgb } = PDFLib;
+      const outDoc = outputMode === 'raster'
+        ? await PDFDocument.create()
+        : await PDFDocument.load(pdfBytesRaw.slice(0), { ignoreEncryption: true });
+
+      outDoc.registerFontkit(window.fontkit);
+      progressText.textContent = '日本語フォントを準備中...';
+      const fontBytes = await fetchFont();
+      const customFont = await outDoc.embedFont(fontBytes, { subset: true });
+      const preservePages = outputMode === 'preserve' ? outDoc.getPages() : null;
+
+      let firstPageText = '';
+      let completedOcr = 0;
+      const opts = { baseScale, outputMode, jpegQuality };
+
+      for (let startPage = 1; startPage <= totalPages; startPage += workerCount) {
+        const pageNums = [];
+        for (let p = startPage; p < startPage + workerCount && p <= totalPages; p++) {
+          pageNums.push(p);
+        }
+
+        progressText.textContent = `OCR処理中... ${completedOcr} / ${totalPages} ページ完了（${workerCount}並列）`;
+
+        const jobs = pageNums.map((pageNum, idx) =>
+          processPageWithWorker(pageNum, workers[idx], opts)
+            .then(result => {
+              completedOcr++;
+              progressFill.style.width = (completedOcr / totalPages * 100).toFixed(1) + '%';
+              progressText.textContent = `OCR処理中... ${completedOcr} / ${totalPages} ページ完了（${workerCount}並列）`;
+              return result;
+            })
+            .catch(err => {
+              setCell(pageNum, 'error');
+              throw err;
+            })
+        );
+
+        const batchResults = await Promise.all(jobs);
+        batchResults.sort((a, b) => a.pageNum - b.pageNum);
+
+        progressText.textContent = `PDFへ反映中... ${batchResults[0].pageNum} / ${totalPages} ページ付近`;
+        await tick(0);
+
+        for (const result of batchResults) {
+          if (result.pageNum === 1) firstPageText = result.text;
+
+          let page;
+          if (outputMode === 'raster') {
+            page = outDoc.addPage([result.pageWidthPt, result.pageHeightPt]);
+            const jpg = await outDoc.embedJpg(result.jpgBytes);
+            page.drawImage(jpg, { x: 0, y: 0, width: result.pageWidthPt, height: result.pageHeightPt });
+          } else {
+            page = preservePages[result.pageNum - 1];
+            if (!page) throw new Error(`${result.pageNum}ページ目のPDFページを取得できませんでした`);
+          }
+
+          drawTextLayer(page, result.words, result.scale, customFont, rgb, debugVisible);
+          setCell(result.pageNum, 'done');
+          await tick(0);
+        }
+      }
+
+      await terminateOcrWorkers(workers);
+      workers = [];
+
+      progressText.textContent = 'PDFを書き出し中...';
+      await tick(0);
+      const bytes = await outDoc.save();
+      if (!bytes || bytes.length < 1024) throw new Error('出力PDFのサイズが異常に小さいため保存を中止しました');
+
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const fname = (document.getElementById('filename').value.replace(/\.pdf$/i, '') || 'ocr_output') + '.pdf';
+      lastDownloadUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = lastDownloadUrl;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      downloadLink.innerHTML = `自動保存されない場合: <a href="${lastDownloadUrl}" download="${escapeHtml(fname)}">${escapeHtml(fname)} をダウンロード</a>`;
+      downloadLink.style.display = 'block';
+      progressText.textContent = `完了: ${fname}\n出力サイズ: ${fmtBytes(bytes.length)}\n処理設定: ${workerCount}並列`;
+
+      if (firstPageText) {
+        previewBody.textContent = firstPageText;
+        previewWrap.style.display = 'block';
+      }
+    } catch (err) {
+      console.error(err);
+      for (let i = 1; i <= totalPages; i++) {
+        const cell = document.getElementById('cell-' + i);
+        if (cell && cell.classList.contains('processing')) setCell(i, 'error');
+      }
+      progressText.textContent = 'エラーが発生しました: ' + (err && err.message ? err.message : String(err));
+      await terminateOcrWorkers(workers);
+    } finally {
+      setControlsDisabled(false);
+    }
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  }
+
+  let _cachedFont = null;
+  async function fetchFont() {
+    if (_cachedFont) return _cachedFont;
+    const urls = [
+      'https://raw.githubusercontent.com/google/fonts/main/ofl/sawarabigothic/SawarabiGothic-Regular.ttf'
+    ];
+    let lastErr = null;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const buf = await res.arrayBuffer();
+        _cachedFont = new Uint8Array(buf);
+        return _cachedFont;
+      } catch (e) {
+        lastErr = e;
+        console.warn('font fetch failed:', url, e && e.message);
+      }
+    }
+    throw new Error('フォントの取得に失敗しました: ' + (lastErr && lastErr.message));
+  }
+</script>
+<script src="../assets/i18n.js"></script>
+</body>
+</html>
