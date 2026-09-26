@@ -1,0 +1,1465 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Split — 分割ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #d9d4c7;
+    --accent: #8b2e2e;
+    --accent-soft: #f4ebe8;
+    --warn: #8a5b12;
+    --danger: #8b2e2e;
+    --ok: #46633a;
+    --shadow: 0 1px 2px rgba(26,26,26,0.04), 0 8px 24px rgba(26,26,26,0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Times New Roman", serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  .container { max-width: 1260px; margin: 0 auto; padding: 48px 32px 80px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 32px; margin-bottom: 40px; }
+  .title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  h1 { font-size: clamp(28px, 4vw, 44px); font-weight: 400; letter-spacing: -0.01em; margin: 0; }
+  h1 .accent { color: var(--accent); font-style: italic; }
+  .subtitle, .description, .dropzone-hint, .file-card .meta, .panel-title, .page-grid-title,
+  .field label, .field select, .field input, .field textarea, .field-hint, .checkline,
+  .tabs, .toolbar, .small-btn, .page-card, .empty-state, .progress, .download-link,
+  .result-list, .note, .validation, .summary, .mode-help, .pill, footer, .doc-list,
+  .status-line, .inline-row, .mini-meta, .help-list, .template-preview {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  }
+  .subtitle { font-size: 13px; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; }
+  .description { font-size: 14px; color: var(--muted); margin-top: 16px; max-width: 760px; }
+  .dropzone {
+    background: var(--surface); border: 2px dashed var(--line); border-radius: 4px; padding: 56px 24px;
+    text-align: center; cursor: pointer; transition: all 0.2s ease; margin-bottom: 32px;
+  }
+  .dropzone:hover, .dropzone.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone-icon { font-size: 48px; color: var(--accent); margin-bottom: 12px; line-height: 1; }
+  .dropzone-text { font-size: 16px; margin-bottom: 6px; }
+  .dropzone-hint { font-size: 13px; color: var(--muted); }
+  #fileInput { display: none; }
+  .hidden { display: none !important; }
+  .file-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 20px 24px; margin-bottom: 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .file-card .fname { font-size: 15px; color: var(--ink); word-break: break-all; }
+  .file-card .fsub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .note { background: var(--accent-soft); border: 1px solid #e4cfc9; border-radius: 3px; padding: 12px 16px; font-size: 12px; color: #6b3a36; margin-bottom: 24px; line-height: 1.6; }
+  .editor-layout { display: grid; grid-template-columns: 1fr 350px; gap: 32px; align-items: start; }
+  @media (max-width: 980px) { .editor-layout { grid-template-columns: 1fr; } .panel { position: static !important; } }
+  .main-area { min-width: 0; display: grid; gap: 24px; }
+  .page-panel, .panel, .results-panel, .docs-panel {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 24px;
+  }
+  .panel { height: fit-content; position: sticky; top: 24px; }
+  .panel-title, .page-grid-title { font-size: 12px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .mode-help { font-size: 12px; color: var(--muted); margin: 0 0 16px; line-height: 1.6; }
+  .doc-list { display: grid; gap: 8px; }
+  .doc-item {
+    width: 100%; text-align: left; border: 1px solid var(--line); background: var(--bg); border-radius: 3px; padding: 10px 12px;
+    cursor: pointer; color: var(--ink); display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+  }
+  .doc-item.active { border-color: var(--accent); background: var(--accent-soft); }
+  .doc-item-name { font-size: 13px; word-break: break-all; }
+  .doc-item-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .doc-remove { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 4px; }
+  .doc-remove:hover { color: var(--accent); }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 18px; }
+  .tab-btn { border: none; border-right: 1px solid var(--line); background: var(--bg); color: var(--muted); padding: 10px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+  .tab-btn:last-child { border-right: none; }
+  .tab-btn.active { background: var(--accent); color: white; }
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 13px; color: var(--ink); margin-bottom: 6px; }
+  .field select, .field input[type=text], .field input[type=number], .field textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); background: var(--bg); font-size: 14px; color: var(--ink); border-radius: 2px;
+  }
+  .field textarea { min-height: 110px; resize: vertical; line-height: 1.55; }
+  .field select:focus, .field input:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  .field-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink); margin: 10px 0 0; }
+  .checkline input { margin-top: 3px; accent-color: var(--accent); }
+  .inline-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .inline-row > * { flex: 1; min-width: 120px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .small-btn {
+    border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 2px; padding: 7px 10px; font-size: 12px; cursor: pointer;
+  }
+  .small-btn:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); background: var(--bg); }
+  .small-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .small-btn.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+  .thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .page-card {
+    border: 1px solid var(--line); background: var(--bg); border-radius: 3px; min-height: 132px; position: relative; cursor: pointer;
+    transition: border-color .15s, transform .15s, box-shadow .15s, background .15s; overflow: hidden;
+  }
+  .page-card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow); }
+  .page-card.selected { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+  .page-card.range-preview { background: var(--accent-soft); border-color: #e4cfc9; }
+  .page-card.deleted { opacity: .45; filter: grayscale(1); }
+  .page-card.blank::after {
+    content: '白紙'; position: absolute; top: 6px; right: 6px; font-size: 10px; color: white; background: var(--warn); padding: 1px 5px; border-radius: 2px;
+  }
+  .page-card.dragging { opacity: .35; }
+  .page-card.drop-target { border-color: var(--accent); border-width: 2px; }
+  .page-card.processing { transform: scale(.97); box-shadow: inset 0 0 0 2px var(--accent); }
+  .thumb-box { height: 104px; display: flex; align-items: center; justify-content: center; background: #e9e5dc; border-bottom: 1px solid var(--line); }
+  .thumb-box canvas { max-width: 100%; max-height: 102px; display: block; background: white; }
+  .thumb-placeholder { color: var(--muted); font-size: 26px; }
+  .thumb-meta { padding: 7px 8px 8px; font-size: 11px; line-height: 1.35; }
+  .thumb-pos { color: var(--ink); }
+  .thumb-original { color: var(--muted); }
+  .page-actions { position: absolute; top: 4px; left: 4px; display: flex; gap: 3px; opacity: 0; transition: opacity .15s; }
+  .page-card:hover .page-actions { opacity: 1; }
+  .mini-action { border: none; background: rgba(255,255,255,.95); color: var(--ink); width: 22px; height: 22px; font-size: 12px; cursor: pointer; border-radius: 2px; }
+  .mini-action:hover { background: var(--accent); color: white; }
+  .empty-state { text-align: center; padding: 30px 16px; font-size: 13px; color: var(--muted); background: var(--bg); border: 1px dashed var(--line); border-radius: 4px; }
+  .summary { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.6; white-space: pre-wrap; }
+  .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; margin: 2px 4px 2px 0; font-size: 11px; color: var(--muted); background: var(--bg); }
+  .divider { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+  .btn { width: 100%; padding: 14px 20px; border: none; background: var(--accent); color: white; font-family: "Hiragino Mincho ProN", serif; font-size: 16px; cursor: pointer; border-radius: 2px; transition: background 0.15s ease; }
+  .btn:hover:not(:disabled) { background: #6b1f1f; }
+  .btn:disabled { background: #c8c2b3; cursor: not-allowed; }
+  .btn-secondary { background: transparent; color: var(--muted); border: 1px solid var(--line); font-size: 13px; padding: 9px 16px; width: auto; }
+  .btn-secondary:hover:not(:disabled) { background: var(--bg); color: var(--ink); border-color: var(--ink); }
+  .btn-cancel { background: transparent; color: var(--danger); border: 1px solid var(--danger); margin-top: 8px; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; font-size: 13px; padding: 10px 12px; }
+  .progress { margin-top: 12px; font-size: 12px; color: var(--muted); text-align: center; min-height: 18px; white-space: pre-wrap; }
+  .progress-bar { height: 2px; background: var(--line); margin-top: 6px; overflow: hidden; border-radius: 1px; display: none; }
+  .progress-bar-fill { height: 100%; background: var(--accent); width: 0; transition: width 0.2s ease; }
+  .download-link { display: none; margin-top: 14px; text-align: center; font-size: 14px; }
+  .download-link a { color: var(--accent); }
+  .result-list { display: grid; gap: 8px; font-size: 13px; }
+  .result-item { border: 1px solid var(--line); background: var(--bg); border-radius: 3px; padding: 9px 11px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+  .result-item a { color: var(--accent); word-break: break-all; }
+  .mini-meta { font-size: 11px; color: var(--muted); }
+  .validation { border: 1px solid var(--line); background: var(--bg); border-radius: 3px; padding: 12px 14px; font-size: 12px; color: var(--muted); line-height: 1.55; margin-top: 16px; }
+  .validation strong { color: var(--ink); }
+  .validation .error { color: var(--danger); }
+  .validation .warn { color: var(--warn); }
+  .validation .ok { color: var(--ok); }
+  .validation ul { margin: 6px 0 0 18px; padding: 0; }
+  .status-line { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  .template-preview { font-size: 11px; color: var(--muted); margin-top: 5px; word-break: break-all; }
+  .help-list { margin: 6px 0 0; padding-left: 18px; font-size: 11px; color: var(--muted); }
+  footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="title-row">
+      <h1>PDF <span class="accent">Split</span></h1>
+      <span class="subtitle">range, pages, bookmarks &amp; blank-page split</span>
+    </div>
+    <p class="description">PDFをページ範囲、固定ページ数、しおり、白紙ページ、または選択ページで分割します。ページの削除・並び替え、個別ダウンロード、複数PDFへの同一ルール適用にも対応しています。処理はブラウザ内で完結します。</p>
+  </header>
+
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-icon">+</div>
+    <div class="dropzone-text">PDFをドロップ または クリックして選択</div>
+    <div class="dropzone-hint">PDF ファイル（複数選択可）</div>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple>
+  </div>
+
+  <div id="editorSection" class="hidden">
+    <div class="file-card">
+      <div class="meta">
+        <div class="fname" id="fileName">—</div>
+        <div class="fsub" id="fileSub">—</div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-secondary" id="addFileBtn" type="button">PDFを追加</button>
+        <button class="btn btn-secondary" id="resetFileBtn" type="button">すべて閉じる</button>
+      </div>
+    </div>
+
+    <div class="note" id="safetyNote">パスワード保護PDFや一部の特殊なPDFはブラウザ内処理では分割できない場合があります。大量ページのPDFでは処理中にタブを閉じないでください。</div>
+
+    <div class="editor-layout">
+      <div class="main-area">
+        <div class="docs-panel">
+          <h2 class="page-grid-title">Documents</h2>
+          <div id="docList" class="doc-list"></div>
+        </div>
+
+        <div class="page-panel">
+          <h2 class="page-grid-title">Pages</h2>
+          <p class="mode-help">範囲指定のページ番号は、現在の表示順に対する番号です。カード内には「表示順」と「元PDFのページ番号」を表示します。削除済みページは出力から除外されます。</p>
+          <div class="toolbar">
+            <button class="small-btn" id="selectAllBtn" type="button" disabled>すべて選択</button>
+            <button class="small-btn" id="clearSelectionBtn" type="button" disabled>選択解除</button>
+            <button class="small-btn" id="selectOddBtn" type="button" disabled>奇数ページ</button>
+            <button class="small-btn" id="selectEvenBtn" type="button" disabled>偶数ページ</button>
+            <button class="small-btn danger" id="deleteSelectedBtn" type="button" disabled>選択ページを削除</button>
+            <button class="small-btn" id="restorePagesBtn" type="button" disabled>削除を戻す</button>
+            <button class="small-btn" id="moveLeftBtn" type="button" disabled>選択を前へ</button>
+            <button class="small-btn" id="moveRightBtn" type="button" disabled>選択を後へ</button>
+            <button class="small-btn" id="resetOrderBtn" type="button" disabled>順序リセット</button>
+            <button class="small-btn" id="renderThumbsBtn" type="button" disabled>サムネイル生成</button>
+            <button class="small-btn" id="detectBlankBtn" type="button" disabled>白紙ページを検出</button>
+          </div>
+          <div id="thumbGrid" class="thumb-grid"></div>
+          <div id="emptyState" class="empty-state">PDFを読み込むとページが表示されます</div>
+          <div id="summary" class="summary"></div>
+        </div>
+
+        <div id="resultsPanel" class="results-panel hidden">
+          <h2 class="page-grid-title">Downloads</h2>
+          <div id="downloadLink" class="download-link"></div>
+          <div id="resultList" class="result-list"></div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h2 class="panel-title">Split Settings</h2>
+
+        <div class="tabs" role="tablist" aria-label="分割方法">
+          <button class="tab-btn active" id="rangeTab" type="button" data-tab="range">分割</button>
+          <button class="tab-btn" id="extractTab" type="button" data-tab="extract">抽出</button>
+        </div>
+
+        <div id="rangeSettings">
+          <div class="field">
+            <label for="rangeMode">分割モード</label>
+            <select id="rangeMode">
+              <option value="custom" selected>カスタム範囲</option>
+              <option value="fixed">固定範囲</option>
+              <option value="outline">しおり単位</option>
+              <option value="blank">白紙ページで分割</option>
+            </select>
+            <div class="field-hint">しおり分割と白紙分割は、対応する情報があるPDFでのみ使用できます</div>
+          </div>
+
+          <div id="customRangeBlock">
+            <div class="field">
+              <label for="customRanges">ページ範囲</label>
+              <textarea id="customRanges" placeholder="例:&#10;1-3&#10;4-6&#10;7,9-10"></textarea>
+              <div class="field-hint">改行ごとに別PDFになります。範囲は現在の表示順に基づきます。</div>
+            </div>
+            <label class="checkline"><input type="checkbox" id="mergeRanges"> すべての範囲を1つのPDFにまとめる</label>
+          </div>
+
+          <div id="fixedRangeBlock" class="hidden">
+            <div class="field">
+              <label for="fixedSize">何ページごとに分割するか</label>
+              <input type="number" id="fixedSize" value="1" min="1" step="1">
+              <div class="field-hint">例: 2 を指定すると、1-2、3-4、5-6…のように分割します</div>
+            </div>
+          </div>
+
+          <div id="outlineBlock" class="hidden">
+            <div class="field-hint">PDFのしおり開始ページを使って章ごとに分割します。しおりがないPDFでは使用できません。</div>
+            <label class="checkline"><input type="checkbox" id="outlineUseTitles" checked> ファイル名にしおり名を使う</label>
+          </div>
+
+          <div id="blankBlock" class="hidden">
+            <div class="field">
+              <label for="blankThreshold">白紙判定の許容率 (%)</label>
+              <input type="number" id="blankThreshold" value="1.0" min="0.1" max="10" step="0.1">
+              <div class="field-hint">数値が大きいほど、薄いノイズがあるページも白紙扱いになりやすくなります</div>
+            </div>
+            <label class="checkline"><input type="checkbox" id="includeBlankPages"> 区切りの白紙ページも出力に含める</label>
+          </div>
+        </div>
+
+        <div id="extractSettings" class="hidden">
+          <div class="field">
+            <label for="extractMode">抽出モード</label>
+            <select id="extractMode">
+              <option value="all" selected>すべてのページを個別PDFにする</option>
+              <option value="selected">指定ページだけ抽出する</option>
+            </select>
+          </div>
+
+          <div id="selectedExtractBlock" class="hidden">
+            <div class="field">
+              <label for="selectedPagesInput">抽出するページ</label>
+              <input type="text" id="selectedPagesInput" placeholder="例: 1,5-8">
+              <div class="field-hint">ページカードの選択内容と同期します。番号は現在の表示順に基づきます。</div>
+            </div>
+            <label class="checkline"><input type="checkbox" id="mergeSelected"> 抽出ページを1つのPDFにまとめる</label>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="field">
+          <label for="batchMode">複数PDF処理</label>
+          <select id="batchMode">
+            <option value="active" selected>現在のPDFだけ処理</option>
+            <option value="all">読み込み済みPDFすべてに同じ設定を適用</option>
+          </select>
+          <div class="field-hint">ページ削除・並び替え・選択状態は各PDFごとに保持されます</div>
+        </div>
+
+        <div class="field">
+          <label for="outputBase">ZIP / 一括保存名</label>
+          <input type="text" id="outputBase" value="split_results" placeholder="split_results">
+          <div class="field-hint">ZIP名や {base} プレースホルダーに使います</div>
+        </div>
+
+        <div class="field">
+          <label for="filenameRule">ファイル名ルール</label>
+          <select id="filenameRule">
+            <option value="source_range" selected>{source}_{range}</option>
+            <option value="source_part">{source}_part_{index}</option>
+            <option value="base_source_range">{base}_{source}_{range}</option>
+            <option value="custom">カスタム</option>
+          </select>
+        </div>
+
+        <div id="customTemplateBlock" class="field hidden">
+          <label for="customTemplate">カスタムテンプレート</label>
+          <input type="text" id="customTemplate" value="{source}_{range}" placeholder="{source}_{range}">
+          <ul class="help-list">
+            <li>{base}: 一括保存名</li>
+            <li>{source}: 元PDF名</li>
+            <li>{index}: 連番</li>
+            <li>{range}: 表示順の範囲</li>
+            <li>{start} / {end}: 開始・終了番号</li>
+            <li>{page}: 単ページ時の元ページ番号</li>
+            <li>{mode}: 分割モード</li>
+          </ul>
+        </div>
+        <div id="templatePreview" class="template-preview"></div>
+
+        <div id="validationBox" class="validation"></div>
+
+        <button class="btn" id="splitBtn" type="button" disabled>PDFを分割してダウンロード</button>
+        <button class="btn btn-cancel hidden" id="cancelBtn" type="button">処理を中止</button>
+        <div class="progress" id="progress"></div>
+        <div class="progress-bar" id="progressBar"><div class="progress-bar-fill" id="progressBarFill"></div></div>
+      </aside>
+    </div>
+  </div>
+
+  <footer>Client-side processing only — no upload, no tracking. Powered by pdf.js, pdf-lib &amp; JSZip.</footer>
+</div>
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const { PDFDocument } = PDFLib;
+  const SETTINGS_KEY = 'pdf_split_tool_settings_v2';
+  const MAX_AUTO_THUMBNAILS = 80;
+
+  let docs = [];
+  let activeDocId = null;
+  let nextDocId = 1;
+  let currentTab = 'range';
+  let lastObjectUrls = [];
+  let suppressInputSync = false;
+  let isBusy = false;
+  let cancelRequested = false;
+  let renderRunId = 0;
+
+  const $ = id => document.getElementById(id);
+  const dropzone = $('dropzone');
+  const fileInput = $('fileInput');
+  const editorSection = $('editorSection');
+  const fileNameEl = $('fileName');
+  const fileSubEl = $('fileSub');
+  const resetFileBtn = $('resetFileBtn');
+  const addFileBtn = $('addFileBtn');
+  const docList = $('docList');
+  const thumbGrid = $('thumbGrid');
+  const emptyState = $('emptyState');
+  const summary = $('summary');
+  const resultsPanel = $('resultsPanel');
+  const resultList = $('resultList');
+  const downloadLink = $('downloadLink');
+  const rangeTab = $('rangeTab');
+  const extractTab = $('extractTab');
+  const rangeSettings = $('rangeSettings');
+  const extractSettings = $('extractSettings');
+  const rangeMode = $('rangeMode');
+  const customRangeBlock = $('customRangeBlock');
+  const fixedRangeBlock = $('fixedRangeBlock');
+  const outlineBlock = $('outlineBlock');
+  const blankBlock = $('blankBlock');
+  const customRanges = $('customRanges');
+  const mergeRanges = $('mergeRanges');
+  const fixedSize = $('fixedSize');
+  const outlineUseTitles = $('outlineUseTitles');
+  const blankThreshold = $('blankThreshold');
+  const includeBlankPages = $('includeBlankPages');
+  const extractMode = $('extractMode');
+  const selectedExtractBlock = $('selectedExtractBlock');
+  const selectedPagesInput = $('selectedPagesInput');
+  const mergeSelected = $('mergeSelected');
+  const batchMode = $('batchMode');
+  const outputBase = $('outputBase');
+  const filenameRule = $('filenameRule');
+  const customTemplateBlock = $('customTemplateBlock');
+  const customTemplate = $('customTemplate');
+  const templatePreview = $('templatePreview');
+  const validationBox = $('validationBox');
+  const splitBtn = $('splitBtn');
+  const cancelBtn = $('cancelBtn');
+  const progressEl = $('progress');
+  const progressBar = $('progressBar');
+  const progressFill = $('progressBarFill');
+  const safetyNote = $('safetyNote');
+  const selectAllBtn = $('selectAllBtn');
+  const clearSelectionBtn = $('clearSelectionBtn');
+  const selectOddBtn = $('selectOddBtn');
+  const selectEvenBtn = $('selectEvenBtn');
+  const deleteSelectedBtn = $('deleteSelectedBtn');
+  const restorePagesBtn = $('restorePagesBtn');
+  const moveLeftBtn = $('moveLeftBtn');
+  const moveRightBtn = $('moveRightBtn');
+  const resetOrderBtn = $('resetOrderBtn');
+  const renderThumbsBtn = $('renderThumbsBtn');
+  const detectBlankBtn = $('detectBlankBtn');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  addFileBtn.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', e => {
+    handleFiles(e.target.files);
+    fileInput.value = '';
+  });
+
+  resetFileBtn.addEventListener('click', resetAll);
+  rangeTab.addEventListener('click', () => setTab('range'));
+  extractTab.addEventListener('click', () => setTab('extract'));
+  rangeMode.addEventListener('change', () => { invalidateBlankIfNeeded(); updateModeUi(); saveSettings(); });
+  extractMode.addEventListener('change', () => { updateModeUi(); saveSettings(); });
+  [customRanges, mergeRanges, fixedSize, outlineUseTitles, blankThreshold, includeBlankPages, mergeSelected, batchMode, outputBase, filenameRule, customTemplate].forEach(el => {
+    el.addEventListener('input', () => { updateAllUi(); saveSettings(); });
+    el.addEventListener('change', () => { updateAllUi(); saveSettings(); });
+  });
+  selectedPagesInput.addEventListener('input', () => {
+    if (suppressInputSync) return;
+    const doc = getActiveDoc();
+    if (!doc) return;
+    try {
+      const positions = parsePagePositions(selectedPagesInput.value, getActivePages(doc).length, false).pages;
+      doc.selected = new Set(positions.map(pos => getActivePages(doc)[pos - 1]).filter(Boolean));
+      renderPages();
+    } catch (_) {}
+    updateAllUi();
+    saveSettings();
+  });
+  splitBtn.addEventListener('click', runSplit);
+  cancelBtn.addEventListener('click', () => { cancelRequested = true; showProgress('中止要求を受け付けました。現在の処理単位が終わると停止します。', null); });
+
+  selectAllBtn.addEventListener('click', () => selectByRule(() => true));
+  clearSelectionBtn.addEventListener('click', () => selectByRule(() => false));
+  selectOddBtn.addEventListener('click', () => selectByRule((_, pos) => pos % 2 === 1));
+  selectEvenBtn.addEventListener('click', () => selectByRule((_, pos) => pos % 2 === 0));
+  deleteSelectedBtn.addEventListener('click', deleteSelectedPages);
+  restorePagesBtn.addEventListener('click', restoreAllPages);
+  moveLeftBtn.addEventListener('click', () => moveSelected(-1));
+  moveRightBtn.addEventListener('click', () => moveSelected(1));
+  resetOrderBtn.addEventListener('click', resetPageOrder);
+  renderThumbsBtn.addEventListener('click', () => renderThumbnailsForActive(true));
+  detectBlankBtn.addEventListener('click', () => detectBlankPagesForActive());
+
+  function getActiveDoc() { return docs.find(d => d.id === activeDocId) || null; }
+  function getActivePages(doc) { return doc.pageOrder.filter(p => !doc.deleted.has(p)); }
+  function fmtBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function sanitizeBaseName(name) {
+    const cleaned = String(name || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+    return cleaned || 'split';
+  }
+  function sanitizeFilePart(name) {
+    return sanitizeBaseName(name).replace(/[ ,]+/g, '_').slice(0, 110) || 'output';
+  }
+  function padNumber(n, width = 3) { return String(n).padStart(width, '0'); }
+  function escapeHtml(str) { return String(str).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }
+  function escapeAttr(str) { return escapeHtml(str); }
+  function tick(ms = 0) { return new Promise(resolve => setTimeout(resolve, ms)); }
+  function revokeObjectUrls() {
+    lastObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    lastObjectUrls = [];
+  }
+  function makeObjectUrl(blob) {
+    const url = URL.createObjectURL(blob);
+    lastObjectUrls.push(url);
+    return url;
+  }
+  function formatError(err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/encrypted|password/i.test(msg)) return 'パスワード保護PDF、または暗号化PDFはこのブラウザ内ツールでは処理できない場合があります';
+    return msg;
+  }
+
+  async function handleFiles(fileList) {
+    const pdfFiles = Array.from(fileList || []).filter(f => f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)));
+    if (!pdfFiles.length) {
+      showProgress('PDFファイルが見つかりませんでした', 0);
+      return;
+    }
+    clearResults();
+    cancelRequested = false;
+    setBusy(true, 'PDFを読み込み中...', 5);
+    try {
+      for (let i = 0; i < pdfFiles.length; i++) {
+        checkCancel();
+        showProgress(`PDFを読み込み中... ${i + 1} / ${pdfFiles.length}`, 5 + (i / pdfFiles.length) * 40);
+        const doc = await createDocState(pdfFiles[i]);
+        docs.push(doc);
+        if (!activeDocId) activeDocId = doc.id;
+        await tick(0);
+      }
+      if (!activeDocId && docs.length) activeDocId = docs[0].id;
+      dropzone.classList.add('hidden');
+      editorSection.classList.remove('hidden');
+      buildDefaultRangeIfEmpty();
+      renderDocList();
+      renderPages();
+      updateAllUi();
+      const active = getActiveDoc();
+      setBusy(false);
+      if (active && active.pageCount <= MAX_AUTO_THUMBNAILS) await renderThumbnailsForActive(false);
+      showProgress('', null);
+    } catch (err) {
+      console.error(err);
+      showProgress('エラー: ' + formatError(err), 0);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createDocState(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const pdfDoc = await PDFDocument.load(bytes.slice(0), { ignoreEncryption: true, updateMetadata: false });
+    const pageCount = pdfDoc.getPageCount();
+    if (!pageCount) throw new Error(`${file.name}: ページが見つかりませんでした`);
+    const base = file.name.replace(/\.pdf$/i, '');
+    const doc = {
+      id: nextDocId++,
+      name: file.name,
+      base,
+      size: file.size,
+      bytes,
+      pageCount,
+      pageOrder: Array.from({ length: pageCount }, (_, i) => i + 1),
+      deleted: new Set(),
+      selected: new Set(),
+      thumbnails: new Map(),
+      blankSet: null,
+      blankThresholdUsed: null,
+      outlineItems: [],
+      outlineError: null,
+      renderedThumbs: false
+    };
+    await loadOutline(doc);
+    return doc;
+  }
+
+  async function loadOutline(doc) {
+    try {
+      const pdfJsDoc = await pdfjsLib.getDocument({ data: doc.bytes.slice(0) }).promise;
+      const outline = await pdfJsDoc.getOutline();
+      const items = [];
+      async function walk(list) {
+        if (!Array.isArray(list)) return;
+        for (const item of list) {
+          let dest = item.dest;
+          try {
+            if (typeof dest === 'string') dest = await pdfJsDoc.getDestination(dest);
+            if (Array.isArray(dest) && dest[0]) {
+              const idx = await pdfJsDoc.getPageIndex(dest[0]);
+              items.push({ title: item.title || `しおり ${idx + 1}`, page: idx + 1 });
+            }
+          } catch (_) {}
+          if (item.items && item.items.length) await walk(item.items);
+        }
+      }
+      await walk(outline);
+      await pdfJsDoc.destroy();
+      const seen = new Set();
+      doc.outlineItems = items
+        .filter(it => it.page >= 1 && it.page <= doc.pageCount)
+        .sort((a, b) => a.page - b.page)
+        .filter(it => {
+          const key = it.page + '|' + it.title;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    } catch (err) {
+      doc.outlineError = err.message || String(err);
+      doc.outlineItems = [];
+    }
+  }
+
+  function renderDocList() {
+    docList.innerHTML = '';
+    if (!docs.length) return;
+    const frag = document.createDocumentFragment();
+    docs.forEach(doc => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'doc-item' + (doc.id === activeDocId ? ' active' : '');
+      btn.innerHTML = `
+        <span>
+          <span class="doc-item-name">${escapeHtml(doc.name)}</span>
+          <span class="doc-item-sub">${doc.pageCount} ページ · ${fmtBytes(doc.size)} · しおり ${doc.outlineItems.length} 件${doc.blankSet ? ` · 白紙 ${doc.blankSet.size} 件` : ''}</span>
+        </span>
+        <span class="doc-remove" title="このPDFを閉じる" data-remove="${doc.id}">×</span>`;
+      btn.addEventListener('click', e => {
+        if (e.target && e.target.dataset.remove) {
+          removeDoc(Number(e.target.dataset.remove));
+          return;
+        }
+        activeDocId = doc.id;
+        buildDefaultRangeIfEmpty();
+        renderDocList();
+        renderPages();
+        updateAllUi();
+        if (doc.pageCount <= MAX_AUTO_THUMBNAILS && !doc.renderedThumbs) renderThumbnailsForActive(false);
+      });
+      frag.appendChild(btn);
+    });
+    docList.appendChild(frag);
+    updateFileHeader();
+  }
+
+  function updateFileHeader() {
+    const doc = getActiveDoc();
+    if (!doc) {
+      fileNameEl.textContent = '—';
+      fileSubEl.textContent = '—';
+      return;
+    }
+    const activePages = getActivePages(doc).length;
+    fileNameEl.textContent = doc.name;
+    fileSubEl.textContent = `${doc.pageCount} ページ · 出力対象 ${activePages} ページ · ${fmtBytes(doc.size)}`;
+    const totalPages = docs.reduce((sum, d) => sum + d.pageCount, 0);
+    const warnings = [];
+    if (doc.pageCount > 100) warnings.push('100ページ超のPDFは処理に時間がかかる場合があります');
+    if (doc.size > 50 * 1024 * 1024) warnings.push('50MB超のPDFはブラウザのメモリ不足に注意してください');
+    if (docs.length > 1) warnings.push(`${docs.length} 件のPDFを読み込み中です。複数PDF処理を使えます`);
+    if (totalPages > 250) warnings.push(`合計 ${totalPages} ページです。必要なPDFだけ処理する設定を推奨します`);
+    safetyNote.textContent = warnings.length ? warnings.join('。') + '。' : 'パスワード保護PDFや一部の特殊なPDFはブラウザ内処理では分割できない場合があります。大量ページのPDFでは処理中にタブを閉じないでください。';
+  }
+
+  function removeDoc(id) {
+    const idx = docs.findIndex(d => d.id === id);
+    if (idx < 0) return;
+    docs.splice(idx, 1);
+    if (activeDocId === id) activeDocId = docs[0] ? docs[0].id : null;
+    if (!docs.length) resetAll();
+    else {
+      renderDocList();
+      renderPages();
+      updateAllUi();
+    }
+  }
+
+  async function resetAll() {
+    revokeObjectUrls();
+    docs = [];
+    activeDocId = null;
+    thumbGrid.innerHTML = '';
+    docList.innerHTML = '';
+    summary.textContent = '';
+    selectedPagesInput.value = '';
+    customRanges.value = '';
+    progressEl.textContent = '';
+    progressBar.style.display = 'none';
+    progressFill.style.width = '0%';
+    clearResults();
+    validationBox.textContent = '';
+    splitBtn.disabled = true;
+    setToolbarEnabled(false);
+    editorSection.classList.add('hidden');
+    dropzone.classList.remove('hidden');
+    updateFileHeader();
+  }
+
+  function setToolbarEnabled(enabled) {
+    [selectAllBtn, clearSelectionBtn, selectOddBtn, selectEvenBtn, deleteSelectedBtn, restorePagesBtn, moveLeftBtn, moveRightBtn, resetOrderBtn, renderThumbsBtn, detectBlankBtn].forEach(btn => btn.disabled = !enabled || isBusy);
+  }
+
+  function buildDefaultRangeIfEmpty() {
+    const doc = getActiveDoc();
+    if (!doc || customRanges.value.trim()) return;
+    const n = getActivePages(doc).length;
+    customRanges.value = n >= 2 ? `1-${Math.ceil(n / 2)}\n${Math.ceil(n / 2) + 1}-${n}` : '1';
+  }
+
+  function renderPages(previewOriginalPages = []) {
+    const doc = getActiveDoc();
+    thumbGrid.innerHTML = '';
+    emptyState.style.display = doc ? 'none' : 'block';
+    if (!doc) return;
+    const preview = new Set(previewOriginalPages);
+    const frag = document.createDocumentFragment();
+    const activePages = getActivePages(doc);
+    doc.pageOrder.forEach(origPage => {
+      const deleted = doc.deleted.has(origPage);
+      const pos = activePages.indexOf(origPage) + 1;
+      const card = document.createElement('div');
+      card.className = 'page-card';
+      if (doc.selected.has(origPage)) card.classList.add('selected');
+      if (preview.has(origPage) && !doc.selected.has(origPage)) card.classList.add('range-preview');
+      if (deleted) card.classList.add('deleted');
+      if (doc.blankSet && doc.blankSet.has(origPage)) card.classList.add('blank');
+      card.draggable = !isBusy;
+      card.dataset.page = String(origPage);
+      card.innerHTML = `
+        <div class="page-actions">
+          <button class="mini-action" data-action="left" title="前へ">←</button>
+          <button class="mini-action" data-action="right" title="後へ">→</button>
+          <button class="mini-action" data-action="delete" title="削除">×</button>
+        </div>
+        <div class="thumb-box" data-thumb-box="${origPage}">${doc.thumbnails.has(origPage) ? '' : `<span class="thumb-placeholder">${origPage}</span>`}</div>
+        <div class="thumb-meta">
+          <div class="thumb-pos">表示順: ${deleted ? '除外' : pos}</div>
+          <div class="thumb-original">元ページ: ${origPage}</div>
+        </div>`;
+      const box = card.querySelector('.thumb-box');
+      if (doc.thumbnails.has(origPage)) {
+        const img = new Image();
+        img.alt = '';
+        img.src = doc.thumbnails.get(origPage);
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '102px';
+        img.style.display = 'block';
+        img.style.background = 'white';
+        box.appendChild(img);
+      }
+      card.addEventListener('click', e => {
+        if (e.target && e.target.dataset.action) return;
+        togglePageSelection(origPage);
+      });
+      card.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const action = btn.dataset.action;
+          if (action === 'left') moveSinglePage(origPage, -1);
+          if (action === 'right') moveSinglePage(origPage, 1);
+          if (action === 'delete') deletePages([origPage]);
+        });
+      });
+      card.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', String(origPage));
+        card.classList.add('dragging');
+      });
+      card.addEventListener('dragend', () => card.classList.remove('dragging'));
+      card.addEventListener('dragover', e => { e.preventDefault(); card.classList.add('drop-target'); });
+      card.addEventListener('dragleave', () => card.classList.remove('drop-target'));
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        card.classList.remove('drop-target');
+        const fromPage = Number(e.dataTransfer.getData('text/plain'));
+        reorderPageBefore(fromPage, origPage);
+      });
+      frag.appendChild(card);
+    });
+    thumbGrid.appendChild(frag);
+    syncSelectedInputFromDoc();
+    updateFileHeader();
+  }
+
+  function togglePageSelection(origPage) {
+    const doc = getActiveDoc();
+    if (!doc || doc.deleted.has(origPage)) return;
+    if (doc.selected.has(origPage)) doc.selected.delete(origPage);
+    else doc.selected.add(origPage);
+    setTab('extract');
+    extractMode.value = 'selected';
+    renderPages();
+    updateModeUi();
+  }
+
+  function selectByRule(rule) {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    doc.selected = new Set();
+    getActivePages(doc).forEach((orig, idx) => {
+      const pos = idx + 1;
+      if (rule(orig, pos)) doc.selected.add(orig);
+    });
+    setTab('extract');
+    extractMode.value = 'selected';
+    renderPages();
+    updateModeUi();
+  }
+
+  function syncSelectedInputFromDoc() {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    const active = getActivePages(doc);
+    const positions = active.map((p, idx) => doc.selected.has(p) ? idx + 1 : null).filter(Boolean);
+    suppressInputSync = true;
+    selectedPagesInput.value = compressNumbers(positions);
+    suppressInputSync = false;
+  }
+
+  function deleteSelectedPages() {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    deletePages([...doc.selected]);
+  }
+  function deletePages(originalPages) {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    originalPages.forEach(p => doc.deleted.add(p));
+    doc.selected.clear();
+    renderPages();
+    updateAllUi();
+  }
+  function restoreAllPages() {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    doc.deleted.clear();
+    renderPages();
+    updateAllUi();
+  }
+  function resetPageOrder() {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    doc.pageOrder = Array.from({ length: doc.pageCount }, (_, i) => i + 1);
+    doc.deleted.clear();
+    doc.selected.clear();
+    renderPages();
+    updateAllUi();
+  }
+  function moveSinglePage(origPage, dir) {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    const idx = doc.pageOrder.indexOf(origPage);
+    const next = idx + dir;
+    if (idx < 0 || next < 0 || next >= doc.pageOrder.length) return;
+    [doc.pageOrder[idx], doc.pageOrder[next]] = [doc.pageOrder[next], doc.pageOrder[idx]];
+    renderPages();
+    updateAllUi();
+  }
+  function moveSelected(dir) {
+    const doc = getActiveDoc();
+    if (!doc || !doc.selected.size) return;
+    if (dir < 0) {
+      for (let i = 1; i < doc.pageOrder.length; i++) {
+        const p = doc.pageOrder[i];
+        const prev = doc.pageOrder[i - 1];
+        if (doc.selected.has(p) && !doc.selected.has(prev)) {
+          doc.pageOrder[i - 1] = p;
+          doc.pageOrder[i] = prev;
+        }
+      }
+    } else {
+      for (let i = doc.pageOrder.length - 2; i >= 0; i--) {
+        const p = doc.pageOrder[i];
+        const next = doc.pageOrder[i + 1];
+        if (doc.selected.has(p) && !doc.selected.has(next)) {
+          doc.pageOrder[i + 1] = p;
+          doc.pageOrder[i] = next;
+        }
+      }
+    }
+    renderPages();
+    updateAllUi();
+  }
+  function reorderPageBefore(fromPage, targetPage) {
+    const doc = getActiveDoc();
+    if (!doc || fromPage === targetPage) return;
+    const arr = doc.pageOrder.filter(p => p !== fromPage);
+    const idx = arr.indexOf(targetPage);
+    arr.splice(idx < 0 ? arr.length : idx, 0, fromPage);
+    doc.pageOrder = arr;
+    renderPages();
+    updateAllUi();
+  }
+
+  async function renderThumbnailsForActive(forceAll) {
+    const doc = getActiveDoc();
+    if (!doc || isBusy) return;
+    const active = getActivePages(doc);
+    const pagesToRender = forceAll ? active : active.slice(0, MAX_AUTO_THUMBNAILS);
+    const myRunId = ++renderRunId;
+    setBusy(true, 'サムネイルを生成中...', 5, true);
+    let pdfJsDoc = null;
+    try {
+      pdfJsDoc = await pdfjsLib.getDocument({ data: doc.bytes.slice(0) }).promise;
+      for (let i = 0; i < pagesToRender.length; i++) {
+        if (myRunId !== renderRunId) return;
+        checkCancel();
+        const pageNum = pagesToRender[i];
+        const page = await pdfJsDoc.getPage(pageNum);
+        const vp1 = page.getViewport({ scale: 1 });
+        const scale = Math.min(110 / vp1.width, 130 / vp1.height, 0.35);
+        const vp = page.getViewport({ scale: Math.max(scale, 0.08) });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(vp.width));
+        canvas.height = Math.max(1, Math.floor(vp.height));
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        doc.thumbnails.set(pageNum, canvas.toDataURL('image/jpeg', 0.72));
+        showProgress(`サムネイルを生成中... ${i + 1} / ${pagesToRender.length}`, 5 + ((i + 1) / pagesToRender.length) * 90, true);
+        if ((i + 1) % 8 === 0) { renderPages(); await tick(0); }
+      }
+      doc.renderedThumbs = forceAll || pagesToRender.length === active.length;
+      renderPages();
+      showProgress(forceAll || active.length <= MAX_AUTO_THUMBNAILS ? '' : `${active.length} ページ中 ${pagesToRender.length} ページまでサムネイルを生成しました`, null, true);
+    } catch (err) {
+      if (!/中止/.test(formatError(err))) showProgress('サムネイル生成エラー: ' + formatError(err), 0, true);
+    } finally {
+      if (pdfJsDoc) { try { await pdfJsDoc.destroy(); } catch (_) {} }
+      setBusy(false, null, null, true);
+    }
+  }
+
+  async function detectBlankPagesForActive() {
+    const doc = getActiveDoc();
+    if (!doc || isBusy) return;
+    const threshold = Number(blankThreshold.value) || 1.0;
+    const active = getActivePages(doc);
+    let pdfJsDoc = null;
+    setBusy(true, '白紙ページを検出中...', 5);
+    try {
+      pdfJsDoc = await pdfjsLib.getDocument({ data: doc.bytes.slice(0) }).promise;
+      const blank = new Set();
+      for (let i = 0; i < active.length; i++) {
+        checkCancel();
+        const pageNum = active[i];
+        const page = await pdfJsDoc.getPage(pageNum);
+        const vp1 = page.getViewport({ scale: 1 });
+        const scale = Math.min(180 / vp1.width, 180 / vp1.height, 0.25);
+        const vp = page.getViewport({ scale: Math.max(scale, 0.06) });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(vp.width));
+        canvas.height = Math.max(1, Math.floor(vp.height));
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        const image = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let sampled = 0;
+        let nonWhite = 0;
+        const stride = Math.max(4, Math.floor(Math.sqrt((canvas.width * canvas.height) / 900)) * 4);
+        for (let j = 0; j < image.length; j += stride) {
+          const r = image[j], g = image[j + 1], b = image[j + 2];
+          sampled++;
+          if (r < 245 || g < 245 || b < 245) nonWhite++;
+        }
+        const nonWhitePct = sampled ? (nonWhite / sampled) * 100 : 0;
+        if (nonWhitePct <= threshold) blank.add(pageNum);
+        showProgress(`白紙ページを検出中... ${i + 1} / ${active.length}`, 5 + ((i + 1) / active.length) * 90);
+        await tick(0);
+      }
+      doc.blankSet = blank;
+      doc.blankThresholdUsed = threshold;
+      renderDocList();
+      renderPages();
+      updateAllUi();
+      showProgress(`白紙検出完了: ${blank.size} ページ`, 100);
+    } catch (err) {
+      showProgress('白紙検出エラー: ' + formatError(err), 0);
+    } finally {
+      if (pdfJsDoc) { try { await pdfJsDoc.destroy(); } catch (_) {} }
+      setBusy(false);
+    }
+  }
+
+  function invalidateBlankIfNeeded() {
+    const doc = getActiveDoc();
+    if (!doc) return;
+    const threshold = Number(blankThreshold.value) || 1.0;
+    if (doc.blankSet && doc.blankThresholdUsed !== threshold) doc.blankSet = null;
+  }
+
+  function setTab(tab) {
+    currentTab = tab;
+    rangeTab.classList.toggle('active', tab === 'range');
+    extractTab.classList.toggle('active', tab === 'extract');
+    rangeSettings.classList.toggle('hidden', tab !== 'range');
+    extractSettings.classList.toggle('hidden', tab !== 'extract');
+    updateModeUi();
+    saveSettings();
+  }
+
+  function updateModeUi() {
+    customRangeBlock.classList.toggle('hidden', currentTab !== 'range' || rangeMode.value !== 'custom');
+    fixedRangeBlock.classList.toggle('hidden', currentTab !== 'range' || rangeMode.value !== 'fixed');
+    outlineBlock.classList.toggle('hidden', currentTab !== 'range' || rangeMode.value !== 'outline');
+    blankBlock.classList.toggle('hidden', currentTab !== 'range' || rangeMode.value !== 'blank');
+    selectedExtractBlock.classList.toggle('hidden', currentTab !== 'extract' || extractMode.value !== 'selected');
+    customTemplateBlock.classList.toggle('hidden', filenameRule.value !== 'custom');
+    updateAllUi();
+  }
+
+  function updateAllUi() {
+    renderDocList();
+    updateSummaryAndValidation();
+    updateTemplatePreview();
+    setToolbarEnabled(!!getActiveDoc());
+  }
+
+  function parsePagePositions(input, max, strictReverse) {
+    const text = String(input || '').trim();
+    const errors = [];
+    const warnings = [];
+    const pages = [];
+    const seen = new Set();
+    if (!text) return { pages, errors: ['ページ番号が入力されていません'], warnings };
+    text.split(',').forEach(raw => {
+      const token = raw.trim();
+      if (!token) return;
+      const m = token.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (m) {
+        const a = Number(m[1]);
+        const b = Number(m[2]);
+        if (a > b && strictReverse) {
+          errors.push(`逆順の範囲があります: ${token}`);
+          return;
+        }
+        const start = Math.min(a, b);
+        const end = Math.max(a, b);
+        if (start < 1 || end > max) {
+          errors.push(`範囲外のページがあります: ${token}（1〜${max}）`);
+          return;
+        }
+        for (let p = start; p <= end; p++) {
+          if (seen.has(p)) warnings.push(`重複ページがあります: ${p}`);
+          else { seen.add(p); pages.push(p); }
+        }
+        return;
+      }
+      if (/^\d+$/.test(token)) {
+        const p = Number(token);
+        if (p < 1 || p > max) errors.push(`範囲外のページがあります: ${p}（1〜${max}）`);
+        else if (seen.has(p)) warnings.push(`重複ページがあります: ${p}`);
+        else { seen.add(p); pages.push(p); }
+        return;
+      }
+      errors.push(`形式が正しくありません: ${token}`);
+    });
+    return { pages, errors, warnings };
+  }
+
+  function getPlanForDoc(doc) {
+    const errors = [];
+    const warnings = [];
+    const active = getActivePages(doc);
+    const max = active.length;
+    const plan = [];
+    if (!max) errors.push('出力対象ページがありません。削除を戻してください。');
+
+    function addItem(positionList, label, title) {
+      const pages = positionList.map(pos => active[pos - 1]).filter(Boolean);
+      if (!pages.length) return;
+      plan.push({ pages, positions: positionList, label, title: title || label });
+    }
+
+    if (!errors.length && currentTab === 'range') {
+      if (rangeMode.value === 'custom') {
+        const raw = customRanges.value.trim();
+        if (!raw) errors.push('ページ範囲を入力してください。');
+        const lines = raw.split(/[\n;]+/).map(s => s.trim()).filter(Boolean);
+        const mergedPositions = [];
+        lines.forEach((line, idx) => {
+          const parsed = parsePagePositions(line, max, true);
+          errors.push(...parsed.errors.map(e => `${idx + 1}行目: ${e}`));
+          warnings.push(...parsed.warnings.map(w => `${idx + 1}行目: ${w}`));
+          if (parsed.pages.length) {
+            if (mergeRanges.checked) mergedPositions.push(...parsed.pages);
+            else addItem(parsed.pages, compressNumbers(parsed.pages), `range_${idx + 1}`);
+          }
+        });
+        if (mergeRanges.checked && mergedPositions.length) addItem(mergedPositions, compressNumbers(mergedPositions), 'merged_ranges');
+      } else if (rangeMode.value === 'fixed') {
+        const n = Math.floor(Number(fixedSize.value));
+        if (!Number.isInteger(n) || n < 1) errors.push('固定範囲には1以上の整数を入力してください。');
+        else {
+          for (let start = 1; start <= max; start += n) {
+            const end = Math.min(max, start + n - 1);
+            const positions = [];
+            for (let p = start; p <= end; p++) positions.push(p);
+            addItem(positions, `${start}-${end}`, `fixed_${start}-${end}`);
+          }
+        }
+      } else if (rangeMode.value === 'outline') {
+        if (!doc.outlineItems.length) errors.push('このPDFには利用可能なしおりが見つかりません。');
+        else {
+          const starts = [];
+          const usedPos = new Set();
+          doc.outlineItems.forEach(item => {
+            const pos = active.indexOf(item.page) + 1;
+            if (pos > 0 && !usedPos.has(pos)) {
+              usedPos.add(pos);
+              starts.push({ pos, title: item.title || `しおり_${pos}` });
+            }
+          });
+          starts.sort((a, b) => a.pos - b.pos);
+          if (!starts.length) errors.push('しおり開始ページがすべて削除済みです。');
+          starts.forEach((item, idx) => {
+            const next = starts[idx + 1] ? starts[idx + 1].pos : max + 1;
+            const positions = [];
+            for (let p = item.pos; p < next; p++) positions.push(p);
+            const label = outlineUseTitles.checked ? sanitizeFilePart(item.title) : `${item.pos}-${next - 1}`;
+            addItem(positions, label, item.title);
+          });
+        }
+      } else if (rangeMode.value === 'blank') {
+        const threshold = Number(blankThreshold.value) || 1.0;
+        if (!doc.blankSet || doc.blankThresholdUsed !== threshold) errors.push('白紙ページを検出してから実行してください。');
+        else if (!doc.blankSet.size) warnings.push('白紙ページが検出されていません。1つのPDFとして出力されます。');
+        if (doc.blankSet) {
+          let current = [];
+          active.forEach((orig, idx) => {
+            const pos = idx + 1;
+            if (doc.blankSet.has(orig)) {
+              if (includeBlankPages.checked) current.push(pos);
+              if (current.length) {
+                addItem(current, compressNumbers(current), `blank_split_${plan.length + 1}`);
+                current = [];
+              }
+            } else {
+              current.push(pos);
+            }
+          });
+          if (current.length) addItem(current, compressNumbers(current), `blank_split_${plan.length + 1}`);
+        }
+      }
+    }
+
+    if (!errors.length && currentTab === 'extract') {
+      if (extractMode.value === 'all') {
+        for (let pos = 1; pos <= max; pos++) addItem([pos], String(pos), `page_${pos}`);
+      } else {
+        const parsed = parsePagePositions(selectedPagesInput.value, max, true);
+        errors.push(...parsed.errors);
+        warnings.push(...parsed.warnings);
+        if (parsed.pages.length) {
+          if (mergeSelected.checked) addItem(parsed.pages, compressNumbers(parsed.pages), 'extracted_pages');
+          else parsed.pages.forEach(pos => addItem([pos], String(pos), `page_${pos}`));
+        }
+      }
+    }
+
+    if (!plan.length && !errors.length) errors.push('出力予定がありません。');
+    if (plan.length > 120) warnings.push(`出力予定が ${plan.length} ファイルあります。ZIP作成と個別リンク生成に時間がかかる場合があります。`);
+    if (doc.pageCount > 100) warnings.push('100ページ超のPDFです。処理に時間がかかる場合があります。');
+    if (doc.size > 50 * 1024 * 1024) warnings.push('50MB超のPDFです。ブラウザのメモリ不足に注意してください。');
+
+    const coverage = new Set();
+    plan.forEach(item => item.positions.forEach(p => coverage.add(p)));
+    if (currentTab === 'range' && rangeMode.value !== 'blank' && coverage.size < max && !mergeRanges.checked) {
+      const missing = [];
+      for (let p = 1; p <= max; p++) if (!coverage.has(p)) missing.push(p);
+      if (missing.length) warnings.push(`未指定ページがあります: ${compressNumbers(missing)}`);
+    }
+    if (currentTab === 'range') {
+      const counts = new Map();
+      plan.forEach(item => item.positions.forEach(p => counts.set(p, (counts.get(p) || 0) + 1)));
+      const dup = [...counts.entries()].filter(([, c]) => c > 1).map(([p]) => p);
+      if (dup.length) warnings.push(`複数の出力に含まれるページがあります: ${compressNumbers(dup)}`);
+    }
+
+    return { doc, plan, errors, warnings, activeCount: max };
+  }
+
+  function getDocsToProcess() {
+    const active = getActiveDoc();
+    if (!active) return [];
+    return batchMode.value === 'all' ? docs : [active];
+  }
+
+  function collectPlans() {
+    return getDocsToProcess().map(doc => getPlanForDoc(doc));
+  }
+
+  function updateSummaryAndValidation() {
+    const doc = getActiveDoc();
+    if (!doc) {
+      summary.textContent = '';
+      validationBox.textContent = '';
+      splitBtn.disabled = true;
+      return;
+    }
+    let activePlan;
+    try { activePlan = getPlanForDoc(doc); } catch (err) { activePlan = { plan: [], errors: [formatError(err)], warnings: [], activeCount: 0 }; }
+    const previewPages = [];
+    activePlan.plan.slice(0, 16).forEach(item => previewPages.push(...item.pages));
+    renderPagePreviewClasses(previewPages);
+    const totalOutputPages = activePlan.plan.reduce((sum, item) => sum + item.pages.length, 0);
+    const shown = activePlan.plan.slice(0, 8).map((item, idx) => `<span class="pill">${idx + 1}: ${escapeHtml(item.label)} / ${escapeHtml(compressNumbers(item.positions))}</span>`).join(' ');
+    const more = activePlan.plan.length > 8 ? `\nほか ${activePlan.plan.length - 8} 件` : '';
+    summary.innerHTML = activePlan.plan.length
+      ? `現在のPDFの出力予定: ${activePlan.plan.length} ファイル / 合計 ${totalOutputPages} ページ\n${shown}${more}`
+      : '現在のPDFの出力予定はありません';
+
+    const collected = collectPlans();
+    const allErrors = [];
+    const allWarnings = [];
+    let allFiles = 0;
+    let allPages = 0;
+    collected.forEach(item => {
+      item.errors.forEach(e => allErrors.push(`${item.doc.name}: ${e}`));
+      item.warnings.forEach(w => allWarnings.push(`${item.doc.name}: ${w}`));
+      allFiles += item.plan.length;
+      allPages += item.plan.reduce((sum, p) => sum + p.pages.length, 0);
+    });
+    const modeText = batchMode.value === 'all' ? `${collected.length} PDF対象` : '現在のPDFのみ';
+    let html = `<strong>検証</strong><br><span class="${allErrors.length ? 'error' : 'ok'}">${allErrors.length ? 'エラーがあります' : '実行可能です'}</span><br>`;
+    html += `出力予定: ${allFiles} ファイル / ${allPages} ページ / ${escapeHtml(modeText)}`;
+    if (allErrors.length) html += `<ul>${allErrors.slice(0, 8).map(e => `<li class="error">${escapeHtml(e)}</li>`).join('')}${allErrors.length > 8 ? `<li class="error">ほか ${allErrors.length - 8} 件</li>` : ''}</ul>`;
+    if (allWarnings.length) html += `<ul>${allWarnings.slice(0, 8).map(w => `<li class="warn">${escapeHtml(w)}</li>`).join('')}${allWarnings.length > 8 ? `<li class="warn">ほか ${allWarnings.length - 8} 件</li>` : ''}</ul>`;
+    validationBox.innerHTML = html;
+    splitBtn.disabled = isBusy || !collected.length || allErrors.length > 0;
+  }
+
+  function renderPagePreviewClasses(previewOriginalPages) {
+    const preview = new Set(previewOriginalPages);
+    thumbGrid.querySelectorAll('.page-card').forEach(card => {
+      const page = Number(card.dataset.page);
+      const doc = getActiveDoc();
+      const selected = doc && doc.selected.has(page);
+      card.classList.toggle('range-preview', preview.has(page) && !selected);
+    });
+  }
+
+  function updateTemplatePreview() {
+    const doc = getActiveDoc();
+    if (!doc) { templatePreview.textContent = ''; return; }
+    const planInfo = getPlanForDoc(doc);
+    const sample = planInfo.plan[0] || { pages: [getActivePages(doc)[0] || 1], positions: [1], label: '1', title: 'sample' };
+    const name = buildOutputFileName(doc, sample, 1, Math.max(1, planInfo.plan.length), new Set());
+    templatePreview.textContent = '例: ' + name;
+  }
+
+  function compressNumbers(nums) {
+    const sorted = [...new Set(nums)].sort((a, b) => a - b);
+    if (!sorted.length) return '';
+    const parts = [];
+    let start = sorted[0], prev = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      const n = sorted[i];
+      if (n === prev + 1) prev = n;
+      else {
+        parts.push(start === prev ? String(start) : `${start}-${prev}`);
+        start = prev = n;
+      }
+    }
+    parts.push(start === prev ? String(start) : `${start}-${prev}`);
+    return parts.join(',');
+  }
+
+  function getFilenameTemplate() {
+    if (filenameRule.value === 'custom') return customTemplate.value || '{source}_{range}';
+    if (filenameRule.value === 'source_part') return '{source}_part_{index}';
+    if (filenameRule.value === 'base_source_range') return '{base}_{source}_{range}';
+    return '{source}_{range}';
+  }
+
+  function buildOutputFileName(doc, item, index, total, used) {
+    const base = sanitizeFilePart(outputBase.value || 'split_results');
+    const source = sanitizeFilePart(doc.base || 'document');
+    const positions = item.positions || [];
+    const originalPages = item.pages || [];
+    const start = positions[0] || 1;
+    const end = positions[positions.length - 1] || start;
+    const page = originalPages.length === 1 ? originalPages[0] : start;
+    const mode = currentTab === 'range' ? rangeMode.value : extractMode.value;
+    let name = getFilenameTemplate()
+      .replaceAll('{base}', base)
+      .replaceAll('{source}', source)
+      .replaceAll('{index}', padNumber(index, Math.max(3, String(total).length)))
+      .replaceAll('{range}', sanitizeFilePart(item.label || compressNumbers(positions) || String(index)))
+      .replaceAll('{start}', String(start))
+      .replaceAll('{end}', String(end))
+      .replaceAll('{page}', String(page))
+      .replaceAll('{mode}', sanitizeFilePart(mode));
+    name = sanitizeFilePart(name) || `${source}_${padNumber(index)}`;
+    let fileName = name + '.pdf';
+    if (used) {
+      let c = 2;
+      while (used.has(fileName)) fileName = `${name}_${c++}.pdf`;
+      used.add(fileName);
+    }
+    return fileName;
+  }
+
+  async function runSplit() {
+    clearResults();
+    const collected = collectPlans();
+    const errors = collected.flatMap(item => item.errors.map(e => `${item.doc.name}: ${e}`));
+    if (errors.length) {
+      updateSummaryAndValidation();
+      showProgress('エラーがあります。設定を確認してください。', 0);
+      return;
+    }
+    setBusy(true, 'PDFを分割中...', 2);
+    cancelRequested = false;
+    const outputs = [];
+    const usedNames = new Set();
+    try {
+      const totalOutputCount = collected.reduce((sum, item) => sum + item.plan.length, 0);
+      let done = 0;
+      for (const item of collected) {
+        checkCancel();
+        const srcDoc = await PDFDocument.load(item.doc.bytes.slice(0), { ignoreEncryption: true, updateMetadata: false });
+        for (let i = 0; i < item.plan.length; i++) {
+          checkCancel();
+          const planItem = item.plan[i];
+          markProcessing(item.doc, planItem.pages, true);
+          const outDoc = await PDFDocument.create();
+          const copied = await outDoc.copyPages(srcDoc, planItem.pages.map(n => n - 1));
+          copied.forEach(page => outDoc.addPage(page));
+          const bytes = await outDoc.save();
+          const name = buildOutputFileName(item.doc, planItem, outputs.length + 1, totalOutputCount, usedNames);
+          outputs.push({ name, bytes, source: item.doc.name, pageCount: planItem.pages.length });
+          done++;
+          markProcessing(item.doc, planItem.pages, false);
+          showProgress(`PDFを分割中... ${done} / ${totalOutputCount}`, 5 + (done / Math.max(1, totalOutputCount)) * 72);
+          await tick(0);
+        }
+      }
+      checkCancel();
+      await presentResults(outputs);
+      showProgress('完了しました', 100);
+    } catch (err) {
+      if (/処理を中止/.test(formatError(err))) showProgress('処理を中止しました', 0);
+      else showProgress('エラー: ' + formatError(err), 0);
+    } finally {
+      setBusy(false);
+      thumbGrid.querySelectorAll('.page-card.processing').forEach(el => el.classList.remove('processing'));
+      updateAllUi();
+    }
+  }
+
+  async function presentResults(outputs) {
+    resultsPanel.classList.remove('hidden');
+    resultList.innerHTML = '';
+    downloadLink.innerHTML = '';
+    downloadLink.style.display = 'none';
+    if (!outputs.length) return;
+    if (outputs.length === 1) {
+      const blob = new Blob([outputs[0].bytes], { type: 'application/pdf' });
+      const url = makeObjectUrl(blob);
+      downloadLink.innerHTML = `<a href="${url}" download="${escapeAttr(outputs[0].name)}">${escapeHtml(outputs[0].name)} をダウンロード</a>`;
+      downloadLink.style.display = 'block';
+    } else {
+      showProgress('ZIPを作成中...', 82);
+      const zip = new JSZip();
+      outputs.forEach(out => zip.file(out.name, out.bytes));
+      const zipBlob = await zip.generateAsync({ type: 'blob' }, meta => {
+        showProgress(`ZIPを作成中... ${Math.round(meta.percent)}%`, 82 + meta.percent * 0.17);
+      });
+      const zipName = sanitizeFilePart(outputBase.value || 'split_results') + '.zip';
+      const zipUrl = makeObjectUrl(zipBlob);
+      downloadLink.innerHTML = `<a href="${zipUrl}" download="${escapeAttr(zipName)}">分割PDF一式をZIPでダウンロード</a>`;
+      downloadLink.style.display = 'block';
+    }
+    const frag = document.createDocumentFragment();
+    outputs.forEach(out => {
+      const blob = new Blob([out.bytes], { type: 'application/pdf' });
+      const url = makeObjectUrl(blob);
+      const row = document.createElement('div');
+      row.className = 'result-item';
+      row.innerHTML = `<span><a href="${url}" download="${escapeAttr(out.name)}">${escapeHtml(out.name)}</a><div class="mini-meta">${escapeHtml(out.source)} · ${out.pageCount} ページ · ${fmtBytes(out.bytes.length)}</div></span><span class="mini-meta">個別</span>`;
+      frag.appendChild(row);
+    });
+    resultList.appendChild(frag);
+  }
+
+  function clearResults() {
+    revokeObjectUrls();
+    resultsPanel.classList.add('hidden');
+    resultList.innerHTML = '';
+    downloadLink.innerHTML = '';
+    downloadLink.style.display = 'none';
+  }
+
+  function markProcessing(doc, pages, on) {
+    if (!doc || doc.id !== activeDocId) return;
+    pages.forEach(p => {
+      const el = thumbGrid.querySelector(`[data-page="${p}"]`);
+      if (el) el.classList.toggle('processing', on);
+    });
+  }
+
+  function setBusy(on, text, pct, quiet) {
+    isBusy = on;
+    if (!quiet) {
+      if (text !== null && text !== undefined) showProgress(text, pct);
+      cancelBtn.classList.toggle('hidden', !on);
+    }
+    splitBtn.disabled = on;
+    setToolbarEnabled(!!getActiveDoc());
+    updateSummaryAndValidation();
+  }
+  function showProgress(text, pct) {
+    if (text !== null && text !== undefined) progressEl.textContent = text || '';
+    if (typeof pct === 'number') {
+      progressBar.style.display = 'block';
+      progressFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    } else if (!progressEl.textContent) {
+      progressBar.style.display = 'none';
+      progressFill.style.width = '0%';
+    }
+  }
+  function checkCancel() {
+    if (cancelRequested) throw new Error('処理を中止しました');
+  }
+
+  function loadSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+      if (s.currentTab) currentTab = s.currentTab;
+      if (s.rangeMode) rangeMode.value = s.rangeMode;
+      if (s.extractMode) extractMode.value = s.extractMode;
+      if (s.mergeRanges !== undefined) mergeRanges.checked = !!s.mergeRanges;
+      if (s.fixedSize) fixedSize.value = s.fixedSize;
+      if (s.outlineUseTitles !== undefined) outlineUseTitles.checked = !!s.outlineUseTitles;
+      if (s.blankThreshold) blankThreshold.value = s.blankThreshold;
+      if (s.includeBlankPages !== undefined) includeBlankPages.checked = !!s.includeBlankPages;
+      if (s.mergeSelected !== undefined) mergeSelected.checked = !!s.mergeSelected;
+      if (s.batchMode) batchMode.value = s.batchMode;
+      if (s.outputBase) outputBase.value = s.outputBase;
+      if (s.filenameRule) filenameRule.value = s.filenameRule;
+      if (s.customTemplate) customTemplate.value = s.customTemplate;
+    } catch (_) {}
+  }
+  function saveSettings() {
+    const s = {
+      currentTab, rangeMode: rangeMode.value, extractMode: extractMode.value,
+      mergeRanges: mergeRanges.checked, fixedSize: fixedSize.value,
+      outlineUseTitles: outlineUseTitles.checked,
+      blankThreshold: blankThreshold.value, includeBlankPages: includeBlankPages.checked,
+      mergeSelected: mergeSelected.checked, batchMode: batchMode.value,
+      outputBase: outputBase.value, filenameRule: filenameRule.value,
+      customTemplate: customTemplate.value
+    };
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (_) {}
+  }
+
+  loadSettings();
+  setTab(currentTab === 'extract' ? 'extract' : 'range');
+  updateModeUi();
+</script>
+<script src="../assets/i18n.js"></script>
+</body>
+</html>
