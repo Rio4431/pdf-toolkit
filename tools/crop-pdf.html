@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Crop — トリミングツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #d9d4c7;
+    --accent: #8b2e2e;
+    --accent-soft: #f4ebe8;
+    --shadow: 0 1px 2px rgba(26,26,26,0.04), 0 8px 24px rgba(26,26,26,0.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Times New Roman", serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px 32px 80px;
+  }
+
+  header {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 32px;
+    margin-bottom: 40px;
+  }
+
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+
+  h1 .accent {
+    color: var(--accent);
+    font-style: italic;
+  }
+
+  .subtitle {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .description {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 16px;
+    max-width: 640px;
+  }
+
+  /* ---- Drop Zone ---- */
+  .dropzone {
+    background: var(--surface);
+    border: 2px dashed var(--line);
+    border-radius: 4px;
+    padding: 56px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: 32px;
+  }
+
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .dropzone-icon {
+    font-family: "Hiragino Mincho ProN", serif;
+    font-size: 48px;
+    color: var(--accent);
+    margin-bottom: 12px;
+    line-height: 1;
+  }
+
+  .dropzone-text {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .dropzone-hint {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  #fileInput { display: none; }
+
+  /* ---- Layout after file loaded ---- */
+  .editor-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 32px;
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .editor-layout { grid-template-columns: 1fr; }
+  }
+
+  /* ---- Canvas Area ---- */
+  .canvas-wrap {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+  }
+
+  #pdfCanvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Crop overlay */
+  .crop-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  .crop-box {
+    position: absolute;
+    border: 2px solid var(--accent);
+    background: rgba(139, 46, 46, 0.08);
+    pointer-events: none;
+    display: none;
+  }
+
+  .crop-box::before,
+  .crop-box::after {
+    content: '';
+    position: absolute;
+    background: var(--accent);
+  }
+
+  /* Shade outside crop region */
+  .shade {
+    position: absolute;
+    background: rgba(245, 243, 238, 0.7);
+    pointer-events: none;
+    display: none;
+  }
+
+  /* Resize handles */
+  .handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border: 2px solid white;
+    border-radius: 1px;
+    display: none;
+    cursor: pointer;
+    pointer-events: all;
+    z-index: 10;
+    transform: translate(-50%, -50%);
+  }
+
+  .handle.nw { cursor: nw-resize; }
+  .handle.ne { cursor: ne-resize; }
+  .handle.sw { cursor: sw-resize; }
+  .handle.se { cursor: se-resize; }
+  .handle.n  { cursor: n-resize; }
+  .handle.s  { cursor: s-resize; }
+  .handle.w  { cursor: w-resize; }
+  .handle.e  { cursor: e-resize; }
+
+  /* ---- Page Nav ---- */
+  .page-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .nav-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 15px;
+    cursor: pointer;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, sans-serif;
+    transition: all 0.15s;
+  }
+
+  .nav-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .nav-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* ---- Panel ---- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 24px;
+    height: fit-content;
+    position: sticky;
+    top: 24px;
+  }
+
+  .panel-title {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .section-title {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 20px 0 10px;
+  }
+
+  .section-title:first-of-type { margin-top: 0; }
+
+  .field {
+    margin-bottom: 14px;
+  }
+
+  .field label {
+    display: block;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+
+  .field input[type=number] {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    border-radius: 2px;
+  }
+
+  .field input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .row .field { margin-bottom: 0; }
+
+  .field-hint {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* ---- Select All checkbox area ---- */
+  .apply-all {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .apply-all input[type=checkbox] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  /* ---- Buttons ---- */
+  .btn {
+    width: 100%;
+    padding: 13px 20px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-family: "Hiragino Mincho ProN", serif;
+    font-size: 15px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background 0.15s ease;
+    margin-top: 6px;
+  }
+
+  .btn:hover:not(:disabled) { background: #6b1f1f; }
+
+  .btn:disabled {
+    background: #c8c2b3;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    font-size: 13px;
+    padding: 9px 14px;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    margin-top: 8px;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--bg);
+    color: var(--ink);
+    border-color: var(--ink);
+  }
+
+  /* ---- Progress ---- */
+  .progress {
+    margin-top: 10px;
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    min-height: 18px;
+  }
+
+  .progress-bar {
+    height: 2px;
+    background: var(--line);
+    margin-top: 6px;
+    overflow: hidden;
+    border-radius: 1px;
+    display: none;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0;
+    transition: width 0.2s ease;
+  }
+
+  /* ---- Divider ---- */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 20px 0;
+  }
+
+  /* ---- Filename ---- */
+  .field input[type=text] {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    border-radius: 2px;
+  }
+
+  .field input[type=text]:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* ---- Crop mode indicator ---- */
+  .mode-indicator {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+  }
+
+  /* ---- Page thumbnails ---- */
+  .thumb-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 0 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+
+  .thumb-item {
+    flex: 0 0 auto;
+    width: 52px;
+    cursor: pointer;
+    border-radius: 2px;
+    overflow: hidden;
+    border: 2px solid transparent;
+    transition: border-color 0.15s;
+    position: relative;
+  }
+
+  .thumb-item.active { border-color: var(--accent); }
+
+  .thumb-item canvas {
+    width: 52px;
+    height: auto;
+    display: block;
+    background: #eee;
+  }
+
+  .thumb-item .thumb-num {
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    font-family: -apple-system, sans-serif;
+    font-size: 9px;
+    color: rgba(255,255,255,0.9);
+    background: rgba(0,0,0,0.45);
+    padding: 1px 4px;
+    border-radius: 1px;
+    line-height: 1.4;
+  }
+
+  .thumb-item .thumb-crop-dot {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 7px;
+    height: 7px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: none;
+  }
+
+  .thumb-item.has-crop .thumb-crop-dot { display: block; }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .hidden { display: none !important; }
+
+  /* Page size info */
+  .page-info {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  /* Reset crop link */
+  .reset-crop {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .reset-crop:hover { color: #6b1f1f; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="title-row">
+      <h1>PDF <span class="accent">Crop</span></h1>
+      <span class="subtitle">trimming tool</span>
+    </div>
+    <p class="description">PDFのページを視覚的にトリミングします。ドラッグして切り抜き範囲を指定し、PDFとして保存してください。すべての処理はブラウザ内で完結し、ファイルはサーバーに送信されません。</p>
+  </header>
+
+  <!-- Drop zone (shown before file load) -->
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-icon">+</div>
+    <div class="dropzone-text">PDFをドロップ または クリックして選択</div>
+    <div class="dropzone-hint">PDF ファイル（1ファイル）</div>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf">
+  </div>
+
+  <!-- Editor (shown after file load) -->
+  <div id="editorSection" class="hidden">
+
+    <!-- Thumbnails -->
+    <div id="thumbRow" class="thumb-row" style="margin-bottom:20px;"></div>
+
+    <div class="editor-layout">
+
+      <!-- Canvas area -->
+      <div>
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="pdfCanvas"></canvas>
+
+          <!-- Shade overlays (top/bottom/left/right of crop box) -->
+          <div class="shade" id="shadeTop"></div>
+          <div class="shade" id="shadeBottom"></div>
+          <div class="shade" id="shadeLeft"></div>
+          <div class="shade" id="shadeRight"></div>
+
+          <!-- Crop box -->
+          <div class="crop-box" id="cropBox"></div>
+
+          <!-- Handles -->
+          <div class="handle nw" id="h-nw"></div>
+          <div class="handle n"  id="h-n"></div>
+          <div class="handle ne" id="h-ne"></div>
+          <div class="handle e"  id="h-e"></div>
+          <div class="handle se" id="h-se"></div>
+          <div class="handle s"  id="h-s"></div>
+          <div class="handle sw" id="h-sw"></div>
+          <div class="handle w"  id="h-w"></div>
+        </div>
+        <div class="page-nav" id="pageNav">
+          <button class="nav-btn" id="prevBtn" disabled>&#8592;</button>
+          <span id="pageLabel">1 / 1</span>
+          <button class="nav-btn" id="nextBtn" disabled>&#8594;</button>
+        </div>
+        <div class="mode-indicator" id="modeIndicator">キャンバス上でドラッグしてトリミング範囲を選択してください</div>
+      </div>
+
+      <!-- Settings panel -->
+      <aside class="panel">
+        <h2 class="panel-title">Crop Settings</h2>
+
+        <div class="page-info" id="pageInfo"></div>
+
+        <p class="section-title">トリミング範囲（mm）</p>
+        <div class="row">
+          <div class="field">
+            <label for="cropLeft">左</label>
+            <input type="number" id="cropLeft" value="0" min="0" step="0.1">
+          </div>
+          <div class="field">
+            <label for="cropRight">右</label>
+            <input type="number" id="cropRight" value="0" min="0" step="0.1">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="cropTop">上</label>
+            <input type="number" id="cropTop" value="0" min="0" step="0.1">
+          </div>
+          <div class="field">
+            <label for="cropBottom">下</label>
+            <input type="number" id="cropBottom" value="0" min="0" step="0.1">
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
+          <button class="reset-crop" id="resetCropBtn">このページをリセット</button>
+        </div>
+
+        <label class="apply-all">
+          <input type="checkbox" id="applyAll">
+          すべてのページに同じ設定を適用
+        </label>
+
+        <hr class="divider">
+
+        <p class="section-title">出力</p>
+
+        <div class="field">
+          <label for="filename">ファイル名</label>
+          <input type="text" id="filename" value="cropped" placeholder="cropped">
+          <div class="field-hint">.pdf は自動で付加されます</div>
+        </div>
+
+        <button class="btn" id="cropBtn" disabled>PDFを生成してダウンロード</button>
+        <button class="btn btn-secondary" id="resetFileBtn">別のファイルを開く</button>
+
+        <div class="progress" id="progress"></div>
+        <div class="progress-bar" id="progressBar">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <footer>
+    Client-side processing only — no upload, no tracking.
+  </footer>
+</div>
+
+<script>
+  // -------------------------------------------------------
+  // pdf.js worker
+  // -------------------------------------------------------
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  // -------------------------------------------------------
+  // State
+  // -------------------------------------------------------
+  let pdfDoc       = null;   // pdf.js PDFDocumentProxy — replaced each page render
+  let pdfBytesLib  = null;   // Uint8Array kept exclusively for pdf-lib output
+  let pdfBytesView = null;   // ArrayBuffer kept for pdf.js (sliced fresh each time)
+
+  let currentPage  = 1;
+  let totalPages   = 0;
+  let renderTask   = null;
+  let cropData     = [];     // [{ leftMm, rightMm, topMm, bottomMm }] per page
+
+  // Interaction state
+  let isDragging = false, isResizing = false, isMoving = false;
+  let resizeHandle = '';
+  let dragStartX = 0, dragStartY = 0;
+  let cropRect = { x: 0, y: 0, w: 0, h: 0 };
+  let hasCrop  = false;
+  let moveStartX = 0, moveStartY = 0, moveStartRect = {};
+
+  // Elements
+  const dropzone      = document.getElementById('dropzone');
+  const fileInput     = document.getElementById('fileInput');
+  const editorSection = document.getElementById('editorSection');
+  const canvasEl      = document.getElementById('pdfCanvas');
+  const canvasWrap    = document.getElementById('canvasWrap');
+  const cropBox       = document.getElementById('cropBox');
+  const pageLabel     = document.getElementById('pageLabel');
+  const prevBtn       = document.getElementById('prevBtn');
+  const nextBtn       = document.getElementById('nextBtn');
+  const cropBtn       = document.getElementById('cropBtn');
+  const resetFileBtn  = document.getElementById('resetFileBtn');
+  const resetCropBtn  = document.getElementById('resetCropBtn');
+  const progressEl    = document.getElementById('progress');
+  const progressBarEl       = document.getElementById('progressBar');
+  const progressBarFillEl   = document.getElementById('progressBarFill');
+  const pageInfoEl    = document.getElementById('pageInfo');
+  const modeIndicator = document.getElementById('modeIndicator');
+  const thumbRow      = document.getElementById('thumbRow');
+  const applyAllCb    = document.getElementById('applyAll');
+  const shadeTop      = document.getElementById('shadeTop');
+  const shadeBottom   = document.getElementById('shadeBottom');
+  const shadeLeft     = document.getElementById('shadeLeft');
+  const shadeRight    = document.getElementById('shadeRight');
+  const handles = {
+    nw: document.getElementById('h-nw'), n: document.getElementById('h-n'),
+    ne: document.getElementById('h-ne'), e: document.getElementById('h-e'),
+    se: document.getElementById('h-se'), s: document.getElementById('h-s'),
+    sw: document.getElementById('h-sw'), w: document.getElementById('h-w'),
+  };
+  const inLeft   = document.getElementById('cropLeft');
+  const inRight  = document.getElementById('cropRight');
+  const inTop    = document.getElementById('cropTop');
+  const inBottom = document.getElementById('cropBottom');
+
+  // -------------------------------------------------------
+  // Drop / Select
+  // -------------------------------------------------------
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault(); dropzone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type === 'application/pdf') loadFile(f);
+  });
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) loadFile(f);
+    fileInput.value = '';
+  });
+
+  resetFileBtn.addEventListener('click', () => {
+    destroyPdfDoc();
+    pdfBytesLib = null; pdfBytesView = null;
+    currentPage = 1; totalPages = 0; cropData = [];
+    hasCrop = false;
+    editorSection.classList.add('hidden');
+    dropzone.classList.remove('hidden');
+    thumbRow.innerHTML = '';
+    hideCropUI();
+    showProgress('');
+  });
+
+  // -------------------------------------------------------
+  // Destroy pdf.js document to free memory
+  // -------------------------------------------------------
+  function destroyPdfDoc() {
+    if (renderTask) { try { renderTask.cancel(); } catch(_){} renderTask = null; }
+    if (pdfDoc)     { try { pdfDoc.destroy();    } catch(_){} pdfDoc = null; }
+    // NOTE: do NOT reset canvas here — it would erase the rendered page
+  }
+
+  // Reset canvas size only when we are about to draw a new page
+  function resetCanvas() {
+    canvasEl.width = 1; canvasEl.height = 1;
+  }
+
+  // -------------------------------------------------------
+  // Load PDF
+  // -------------------------------------------------------
+  async function loadFile(file) {
+    try {
+      showProgress('PDFを読み込み中...');
+      const buf = await file.arrayBuffer();
+      // Keep two fully independent ArrayBuffer copies.
+      // pdf.js detaches the ArrayBuffer of any TypedArray it receives,
+      // so we slice fresh every time we call getDocument.
+      pdfBytesLib  = new Uint8Array(buf.slice(0)); // for pdf-lib only, never given to pdf.js
+      pdfBytesView = buf.slice(0);                 // master ArrayBuffer for pdf.js previews
+
+      // Open pdf.js once just to get page count, then destroy
+      const tmpDoc = await pdfjsLib.getDocument({ data: pdfBytesView.slice(0) }).promise;
+      totalPages = tmpDoc.numPages;
+      await tmpDoc.destroy();
+
+      cropData = Array.from({ length: totalPages }, () =>
+        ({ leftMm: 0, rightMm: 0, topMm: 0, bottomMm: 0 }));
+
+      currentPage = 1;
+      dropzone.classList.add('hidden');
+      editorSection.classList.remove('hidden');
+      cropBtn.disabled = false;
+
+      const base = file.name.replace(/\.pdf$/i, '');
+      document.getElementById('filename').value = base + '_cropped';
+
+      buildThumbsPlaceholders();
+      await renderPage(currentPage);
+      showProgress('');
+    } catch (err) {
+      showProgress('エラー: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  // -------------------------------------------------------
+  // Thumbnails — placeholders only (numbered boxes, no render)
+  // Rendering 400 canvases would exhaust memory; placeholders avoid that.
+  // -------------------------------------------------------
+  function buildThumbsPlaceholders() {
+    thumbRow.innerHTML = '';
+    for (let i = 1; i <= totalPages; i++) {
+      const item = document.createElement('div');
+      item.className = 'thumb-item' + (i === currentPage ? ' active' : '');
+      item.dataset.page = i;
+      item.style.cssText = 'width:52px;height:74px;display:flex;align-items:center;justify-content:center;position:relative;background:#e8e4dc;';
+
+      const dot = document.createElement('div');
+      dot.className = 'thumb-crop-dot';
+
+      const num = document.createElement('div');
+      num.className = 'thumb-num';
+      num.textContent = i;
+      num.style.cssText = 'position:absolute;bottom:2px;right:3px;font-family:-apple-system,sans-serif;font-size:9px;color:rgba(255,255,255,0.9);background:rgba(0,0,0,0.45);padding:1px 4px;border-radius:1px;line-height:1.4;';
+
+      item.appendChild(dot);
+      item.appendChild(num);
+      thumbRow.appendChild(item);
+      item.addEventListener('click', () => goPage(Number(item.dataset.page)));
+    }
+  }
+
+  function updateThumbActive() {
+    thumbRow.querySelectorAll('.thumb-item').forEach(el =>
+      el.classList.toggle('active', Number(el.dataset.page) === currentPage));
+  }
+
+  function updateThumbCropDot(pageNum) {
+    const el = thumbRow.querySelector(`[data-page="${pageNum}"]`);
+    if (!el) return;
+    const d = cropData[pageNum - 1];
+    el.classList.toggle('has-crop', d.leftMm > 0 || d.rightMm > 0 || d.topMm > 0 || d.bottomMm > 0);
+  }
+
+  // -------------------------------------------------------
+  // Render page
+  // Key design: destroy the pdf.js document AFTER each render
+  // so memory is freed before opening the next page.
+  // -------------------------------------------------------
+  async function renderPage(num) {
+    destroyPdfDoc();  // cancel any running render task, destroy pdfDoc
+    resetCanvas();    // clear canvas BEFORE loading new page (safe here)
+
+    showProgress('ページを読み込み中...');
+
+    try {
+      // Create a fresh pdf.js document for this single page only
+      pdfDoc = await pdfjsLib.getDocument({ data: pdfBytesView.slice(0) }).promise;
+      const page = await pdfDoc.getPage(num);
+      const pvNative = page.getViewport({ scale: 1 });
+
+      const wrapW = Math.max(canvasWrap.clientWidth || 700, 300);
+      let fit = Math.min((wrapW - 2) / pvNative.width, 1.5);
+      fit = Math.max(fit, 0.05);
+
+      let rendered = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const vp = page.getViewport({ scale: fit });
+        const w = Math.max(1, Math.floor(vp.width));
+        const h = Math.max(1, Math.floor(vp.height));
+
+        resetCanvas();
+        await tick();
+        canvasEl.width = w; canvasEl.height = h;
+
+        renderTask = page.render({ canvasContext: canvasEl.getContext('2d'), viewport: vp });
+        try {
+          await renderTask.promise;
+          canvasEl._renderScale  = vp.scale;
+          canvasEl._pageWidthPt  = pvNative.width;
+          canvasEl._pageHeightPt = pvNative.height;
+          rendered = true;
+          break;
+        } catch (e) {
+          if (e && e.name === 'RenderingCancelledException') return;
+          console.warn(`renderPage attempt ${attempt+1} failed at scale ${fit.toFixed(3)}:`, e && e.message);
+          fit /= 2;
+          resetCanvas();
+          await tick(60);
+        }
+      }
+
+      if (!rendered) {
+        showProgress('ページの表示に失敗しました');
+        return;
+      }
+
+      const ptToMm = 25.4 / 72;
+      pageInfoEl.textContent =
+        `${(pvNative.width * ptToMm).toFixed(1)} × ${(pvNative.height * ptToMm).toFixed(1)} mm`;
+
+      pageLabel.textContent = `${num} / ${totalPages}`;
+      prevBtn.disabled = num <= 1;
+      nextBtn.disabled = num >= totalPages;
+
+      // Release pdf.js document memory (canvas must NOT be reset here)
+      destroyPdfDoc();
+
+      restoreCropFromData(num);
+      updateThumbActive();
+      showProgress('');
+    } catch (err) {
+      showProgress('エラー: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  function tick(ms = 0) { return new Promise(r => setTimeout(r, ms)); }
+
+  // -------------------------------------------------------
+  // Page navigation
+  // -------------------------------------------------------
+  function goPage(num) {
+    if (num < 1 || num > totalPages) return;
+    saveCropToData(currentPage);
+    currentPage = num;
+    renderPage(num);
+  }
+  prevBtn.addEventListener('click', () => goPage(currentPage - 1));
+  nextBtn.addEventListener('click', () => goPage(currentPage + 1));
+
+  // -------------------------------------------------------
+  // Crop data: save / restore
+  // -------------------------------------------------------
+  function saveCropToData(pageNum) {
+    if (!hasCrop) {
+      cropData[pageNum - 1] = { leftMm: 0, rightMm: 0, topMm: 0, bottomMm: 0 };
+    } else {
+      const ptToMm = 25.4 / 72;
+      const sc = canvasEl._renderScale || 1;
+      const pw = canvasEl._pageWidthPt  || 1;
+      const ph = canvasEl._pageHeightPt || 1;
+      const leftMm   = Math.max(0, (cropRect.x / sc) * ptToMm);
+      const topMm    = Math.max(0, (cropRect.y / sc) * ptToMm);
+      const rightMm  = Math.max(0, ((pw * sc - cropRect.x - cropRect.w) / sc) * ptToMm);
+      const bottomMm = Math.max(0, ((ph * sc - cropRect.y - cropRect.h) / sc) * ptToMm);
+      const d = { leftMm, rightMm, topMm, bottomMm };
+      if (applyAllCb.checked) {
+        for (let i = 0; i < totalPages; i++) cropData[i] = { ...d };
+        for (let i = 1; i <= totalPages; i++) updateThumbCropDot(i);
+      } else {
+        cropData[pageNum - 1] = d;
+        updateThumbCropDot(pageNum);
+      }
+    }
+    if (!applyAllCb.checked) updateThumbCropDot(pageNum);
+  }
+
+  function restoreCropFromData(num) {
+    const d = cropData[num - 1];
+    const ptToMm = 25.4 / 72;
+    const sc = canvasEl._renderScale || 1;
+    const pw = canvasEl._pageWidthPt  || 1;
+    const ph = canvasEl._pageHeightPt || 1;
+    const lPx = (d.leftMm   / ptToMm) * sc;
+    const rPx = (d.rightMm  / ptToMm) * sc;
+    const tPx = (d.topMm    / ptToMm) * sc;
+    const bPx = (d.bottomMm / ptToMm) * sc;
+    const totalW = pw * sc, totalH = ph * sc;
+
+    if (d.leftMm === 0 && d.rightMm === 0 && d.topMm === 0 && d.bottomMm === 0) {
+      hasCrop = false; hideCropUI();
+    } else {
+      cropRect = { x: lPx, y: tPx, w: totalW - lPx - rPx, h: totalH - tPx - bPx };
+      hasCrop = true; showCropUI();
+    }
+    inLeft.value   = d.leftMm.toFixed(1);
+    inRight.value  = d.rightMm.toFixed(1);
+    inTop.value    = d.topMm.toFixed(1);
+    inBottom.value = d.bottomMm.toFixed(1);
+  }
+
+  // -------------------------------------------------------
+  // Number inputs → update crop box
+  // -------------------------------------------------------
+  function inputsToCropRect() {
+    const ptToMm = 25.4 / 72;
+    const sc = canvasEl._renderScale || 1;
+    const pw = canvasEl._pageWidthPt  || 1;
+    const ph = canvasEl._pageHeightPt || 1;
+    const l = Math.max(0, parseFloat(inLeft.value)   || 0);
+    const r = Math.max(0, parseFloat(inRight.value)  || 0);
+    const t = Math.max(0, parseFloat(inTop.value)    || 0);
+    const b = Math.max(0, parseFloat(inBottom.value) || 0);
+    const lPx = (l / ptToMm) * sc, rPx = (r / ptToMm) * sc;
+    const tPx = (t / ptToMm) * sc, bPx = (b / ptToMm) * sc;
+    const totalW = pw * sc, totalH = ph * sc;
+    cropRect = { x: lPx, y: tPx, w: Math.max(1, totalW - lPx - rPx), h: Math.max(1, totalH - tPx - bPx) };
+    hasCrop = (l > 0 || r > 0 || t > 0 || b > 0);
+    if (hasCrop) showCropUI(); else hideCropUI();
+    saveCropToData(currentPage);
+  }
+  [inLeft, inRight, inTop, inBottom].forEach(el => el.addEventListener('input', inputsToCropRect));
+
+  // -------------------------------------------------------
+  // Crop UI: show / hide / position
+  // -------------------------------------------------------
+  function showCropUI() {
+    cropBox.style.display = 'block';
+    [shadeTop, shadeBottom, shadeLeft, shadeRight].forEach(s => s.style.display = 'block');
+    Object.values(handles).forEach(h => h.style.display = 'block');
+    applyCropBoxStyle();
+  }
+
+  function hideCropUI() {
+    cropBox.style.display = 'none';
+    [shadeTop, shadeBottom, shadeLeft, shadeRight].forEach(s => s.style.display = 'none');
+    Object.values(handles).forEach(h => h.style.display = 'none');
+  }
+
+  function applyCropBoxStyle() {
+    const wr = canvasWrap.getBoundingClientRect();
+    const cr = canvasEl.getBoundingClientRect();
+    const offX = cr.left - wr.left, offY = cr.top - wr.top;
+    const rx = offX + cropRect.x, ry = offY + cropRect.y;
+    const rw = cropRect.w,        rh = cropRect.h;
+    const cW = canvasEl.offsetWidth, cH = canvasEl.offsetHeight;
+
+    cropBox.style.cssText = `display:block;left:${rx}px;top:${ry}px;width:${rw}px;height:${rh}px;`;
+    shadeTop.style.cssText    = `display:block;left:${offX}px;top:${offY}px;width:${cW}px;height:${cropRect.y}px;`;
+    shadeBottom.style.cssText = `display:block;left:${offX}px;top:${offY+cropRect.y+rh}px;width:${cW}px;height:${cH-cropRect.y-rh}px;`;
+    shadeLeft.style.cssText   = `display:block;left:${offX}px;top:${offY+cropRect.y}px;width:${cropRect.x}px;height:${rh}px;`;
+    shadeRight.style.cssText  = `display:block;left:${offX+cropRect.x+rw}px;top:${offY+cropRect.y}px;width:${cW-cropRect.x-rw}px;height:${rh}px;`;
+
+    const hpos = {
+      nw:[rx,ry], n:[rx+rw/2,ry], ne:[rx+rw,ry],
+      e:[rx+rw,ry+rh/2], se:[rx+rw,ry+rh],
+      s:[rx+rw/2,ry+rh], sw:[rx,ry+rh], w:[rx,ry+rh/2]
+    };
+    for (const [k, [hx, hy]] of Object.entries(hpos)) {
+      handles[k].style.left = hx + 'px';
+      handles[k].style.top  = hy + 'px';
+    }
+  }
+
+  // -------------------------------------------------------
+  // Update mm inputs from cropRect
+  // -------------------------------------------------------
+  function updateInputsFromCropRect() {
+    const ptToMm = 25.4 / 72;
+    const sc = canvasEl._renderScale || 1;
+    const pw = canvasEl._pageWidthPt  || 1;
+    const ph = canvasEl._pageHeightPt || 1;
+    inLeft.value   = Math.max(0, (cropRect.x / sc) * ptToMm).toFixed(1);
+    inTop.value    = Math.max(0, (cropRect.y / sc) * ptToMm).toFixed(1);
+    inRight.value  = Math.max(0, ((pw * sc - cropRect.x - cropRect.w) / sc) * ptToMm).toFixed(1);
+    inBottom.value = Math.max(0, ((ph * sc - cropRect.y - cropRect.h) / sc) * ptToMm).toFixed(1);
+  }
+
+  // -------------------------------------------------------
+  // Canvas mouse interaction
+  // -------------------------------------------------------
+  function canvasCoords(e) {
+    const cr = canvasEl.getBoundingClientRect();
+    return { cx: e.clientX - cr.left, cy: e.clientY - cr.top };
+  }
+
+  canvasEl.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const { cx, cy } = canvasCoords(e);
+    isDragging = true; dragStartX = cx; dragStartY = cy;
+    cropRect = { x: cx, y: cy, w: 0, h: 0 };
+    hasCrop = false; hideCropUI();
+    modeIndicator.textContent = 'ドラッグして範囲を選択しています...';
+    e.preventDefault();
+  });
+
+  Object.entries(handles).forEach(([pos, el]) => {
+    el.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      isResizing = true; resizeHandle = pos;
+      e.preventDefault(); e.stopPropagation();
+    });
+  });
+
+  cropBox.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    isMoving = true;
+    const { cx, cy } = canvasCoords(e);
+    moveStartX = cx; moveStartY = cy; moveStartRect = { ...cropRect };
+    e.preventDefault(); e.stopPropagation();
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!isDragging && !isResizing && !isMoving) return;
+    const { cx, cy } = canvasCoords(e);
+    const cW = canvasEl.offsetWidth, cH = canvasEl.offsetHeight;
+
+    if (isDragging) {
+      const x = Math.min(dragStartX, cx), y = Math.min(dragStartY, cy);
+      const w = Math.abs(cx - dragStartX), h = Math.abs(cy - dragStartY);
+      cropRect = { x: clamp(x,0,cW), y: clamp(y,0,cH),
+                   w: clamp(w,0,cW-clamp(x,0,cW)), h: clamp(h,0,cH-clamp(y,0,cH)) };
+      if (w > 4 || h > 4) { hasCrop = true; showCropUI(); }
+    } else if (isMoving) {
+      cropRect.x = clamp(moveStartRect.x + (cx - moveStartX), 0, cW - cropRect.w);
+      cropRect.y = clamp(moveStartRect.y + (cy - moveStartY), 0, cH - cropRect.h);
+      applyCropBoxStyle(); updateInputsFromCropRect();
+    } else if (isResizing) {
+      let { x, y, w, h } = cropRect, x2 = x + w, y2 = y + h;
+      if (resizeHandle.includes('n')) y  = clamp(cy, 0, y2 - 5);
+      if (resizeHandle.includes('s')) y2 = clamp(cy, y + 5, cH);
+      if (resizeHandle.includes('w')) x  = clamp(cx, 0, x2 - 5);
+      if (resizeHandle.includes('e')) x2 = clamp(cx, x + 5, cW);
+      cropRect = { x, y, w: x2 - x, h: y2 - y };
+      applyCropBoxStyle(); updateInputsFromCropRect();
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!isDragging && !isResizing && !isMoving) return;
+    isDragging = false; isResizing = false; isMoving = false;
+    if (hasCrop && cropRect.w > 4 && cropRect.h > 4) {
+      applyCropBoxStyle(); updateInputsFromCropRect(); saveCropToData(currentPage);
+      modeIndicator.textContent = 'ドラッグして範囲を変更、またはハンドルでサイズ調整できます';
+    } else {
+      hasCrop = false; hideCropUI();
+      modeIndicator.textContent = 'キャンバス上でドラッグしてトリミング範囲を選択してください';
+    }
+  });
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  // -------------------------------------------------------
+  // Reset crop
+  // -------------------------------------------------------
+  resetCropBtn.addEventListener('click', () => {
+    hasCrop = false; cropRect = { x: 0, y: 0, w: 0, h: 0 };
+    inLeft.value = inRight.value = inTop.value = inBottom.value = '0';
+    if (applyAllCb.checked) {
+      for (let i = 0; i < totalPages; i++)
+        cropData[i] = { leftMm: 0, rightMm: 0, topMm: 0, bottomMm: 0 };
+      for (let i = 1; i <= totalPages; i++) updateThumbCropDot(i);
+    } else {
+      cropData[currentPage - 1] = { leftMm: 0, rightMm: 0, topMm: 0, bottomMm: 0 };
+      updateThumbCropDot(currentPage);
+    }
+    hideCropUI();
+    modeIndicator.textContent = 'キャンバス上でドラッグしてトリミング範囲を選択してください';
+  });
+
+  applyAllCb.addEventListener('change', () => {
+    if (applyAllCb.checked) saveCropToData(currentPage);
+  });
+
+  // -------------------------------------------------------
+  // Generate PDF
+  // pdf-lib only touches pdfBytesLib (never pdf.js's copy)
+  // -------------------------------------------------------
+  cropBtn.addEventListener('click', async () => {
+    saveCropToData(currentPage);
+    cropBtn.disabled = true;
+    showProgress('PDFを生成中...');
+    progressBarEl.style.display = 'block';
+    progressBarFillEl.style.width = '0%';
+
+    try {
+      const { PDFDocument } = PDFLib;
+      // Edit the source document IN PLACE — no page copying.
+      // copyPages() one-by-one duplicates shared resources (fonts/images)
+      // per page and exhausts memory on large documents. Editing the
+      // existing pages' CropBox/MediaBox keeps memory ~constant.
+      const doc = await PDFDocument.load(pdfBytesLib);
+      const pages = doc.getPages();
+      const ptPerMm = 72 / 25.4;
+
+      for (let i = 0; i < pages.length; i++) {
+        const d = cropData[i];
+        if (d && (d.leftMm > 0 || d.rightMm > 0 || d.topMm > 0 || d.bottomMm > 0)) {
+          const page = pages[i];
+          const mb = page.getMediaBox();
+          const lPt = d.leftMm * ptPerMm, rPt = d.rightMm * ptPerMm;
+          const tPt = d.topMm  * ptPerMm, bPt = d.bottomMm * ptPerMm;
+          const nW = mb.width - lPt - rPt, nH = mb.height - tPt - bPt;
+          if (nW > 0 && nH > 0) {
+            page.setMediaBox(mb.x + lPt, mb.y + bPt, nW, nH);
+            page.setCropBox (mb.x + lPt, mb.y + bPt, nW, nH);
+          }
+        }
+        progressBarFillEl.style.width = ((i + 1) / pages.length * 100).toFixed(1) + '%';
+        if (i % 50 === 0) {
+          showProgress(`処理中... ${i + 1} / ${pages.length}`);
+          await tick();
+        }
+      }
+
+      showProgress('PDFを書き出し中...');
+      await tick();
+      const bytes    = await doc.save({ useObjectStreams: false });
+      const blob     = new Blob([bytes], { type: 'application/pdf' });
+      const url      = URL.createObjectURL(blob);
+      const filename = (document.getElementById('filename').value.replace(/\.pdf$/i, '') || 'cropped') + '.pdf';
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+
+      showProgress('完了: ' + filename);
+      setTimeout(() => { progressBarEl.style.display = 'none'; progressBarFillEl.style.width = '0%'; }, 800);
+    } catch (err) {
+      showProgress('エラー: ' + err.message);
+      console.error(err);
+      progressBarEl.style.display = 'none';
+    } finally {
+      cropBtn.disabled = false;
+    }
+  });
+
+  // -------------------------------------------------------
+  // Progress helpers
+  // -------------------------------------------------------
+  function showProgress(text) { progressEl.textContent = text || ''; }
+</script>
+<script src="../assets/i18n.js"></script>
+</body>
+</html>
