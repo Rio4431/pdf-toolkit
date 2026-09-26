@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="A browser-based PDF toolkit for JPEG-to-PDF conversion, PDF cropping, OCR, and PDF splitting." />
+  <title>PDF Toolkit</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #20242b;
+      --muted: #69717d;
+      --border: #dfe3e8;
+      --active: #20242b;
+      --active-text: #ffffff;
+      --hover: #eef1f4;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.96);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+
+    .header-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 14px 18px 12px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      margin: 0;
+      font-size: 1.12rem;
+      font-weight: 750;
+      letter-spacing: -0.01em;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .language-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    .language-button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 2px 4px;
+      font: inherit;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    .language-button:hover { color: var(--text); }
+
+    .language-button:focus-visible {
+      outline: 2px solid rgba(32, 36, 43, 0.2);
+      outline-offset: 2px;
+    }
+
+    .language-button[aria-pressed="true"] {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .tool-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tool-button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 9px;
+      min-height: 38px;
+      padding: 8px 13px;
+      font: inherit;
+      font-size: 0.9rem;
+      font-weight: 650;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+
+    .tool-button:hover { background: var(--hover); }
+
+    .tool-button:focus-visible {
+      outline: 3px solid rgba(32, 36, 43, 0.18);
+      outline-offset: 2px;
+    }
+
+    .tool-button[aria-selected="true"] {
+      background: var(--active);
+      border-color: var(--active);
+      color: var(--active-text);
+    }
+
+    .workspace {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 16px 18px 24px;
+    }
+
+    .frame-panel {
+      display: none;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .frame-panel.active { display: block; }
+
+    iframe {
+      display: block;
+      width: 100%;
+      min-height: 1100px;
+      border: 0;
+      background: #fff;
+    }
+
+    .loading-note {
+      padding: 28px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    @media (max-width: 720px) {
+      .header-inner, .workspace { padding-left: 12px; padding-right: 12px; }
+      .brand-row { display: block; }
+      .header-actions { margin-top: 5px; justify-content: flex-start; }
+      .subtitle { margin-top: 3px; }
+      .tool-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .tool-button { width: 100%; }
+      iframe { min-height: 1300px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand-row">
+        <h1 class="brand">PDFツール</h1>
+        <div class="header-actions">
+          <p class="subtitle">4つのPDFツールを1つのサイトに集約</p>
+          <div class="language-switch" role="group" aria-label="言語">
+            <button class="language-button" type="button" data-lang-button="ja" aria-pressed="true">日本語</button>
+            <span aria-hidden="true">/</span>
+            <button class="language-button" type="button" data-lang-button="en" aria-pressed="false">English</button>
+          </div>
+        </div>
+      </div>
+      <nav class="tool-nav" aria-label="PDFツールナビゲーション" role="tablist">
+        <button class="tool-button" type="button" role="tab" aria-selected="true" data-tool="jpeg">JPEG → PDF</button>
+        <button class="tool-button" type="button" role="tab" aria-selected="false" data-tool="crop">PDFトリミング</button>
+        <button class="tool-button" type="button" role="tab" aria-selected="false" data-tool="ocr">PDF OCR</button>
+        <button class="tool-button" type="button" role="tab" aria-selected="false" data-tool="split">PDF分割</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="frame-panel active" data-panel="jpeg">
+      <div class="loading-note">JPEG → PDF を読み込み中…</div>
+      <iframe title="JPEG to PDF" data-src="tools/jpeg-to-pdf.html"></iframe>
+    </section>
+    <section class="frame-panel" data-panel="crop">
+      <div class="loading-note">PDFトリミングを読み込み中…</div>
+      <iframe title="PDFトリミング" data-src="tools/crop-pdf.html"></iframe>
+    </section>
+    <section class="frame-panel" data-panel="ocr">
+      <div class="loading-note">PDF OCRを読み込み中…</div>
+      <iframe title="PDF OCR" data-src="tools/ocr-pdf.html"></iframe>
+    </section>
+    <section class="frame-panel" data-panel="split">
+      <div class="loading-note">PDF分割を読み込み中…</div>
+      <iframe title="PDF分割" data-src="tools/split-pdf.html"></iframe>
+    </section>
+  </main>
+
+  <script src="assets/i18n.js"></script>
+  <script>
+    (() => {
+      const buttons = [...document.querySelectorAll('.tool-button')];
+      const panels = [...document.querySelectorAll('.frame-panel')];
+      const languageButtons = [...document.querySelectorAll('.language-button')];
+      const validTools = new Set(buttons.map(button => button.dataset.tool));
+
+      function currentLanguage() {
+        return window.PDFToolkitI18n?.getLanguage?.() || 'ja';
+      }
+
+      function updateLanguageButtons(lang = currentLanguage()) {
+        languageButtons.forEach(button => {
+          button.setAttribute('aria-pressed', String(button.dataset.langButton === lang));
+        });
+      }
+
+      function notifyFrames(lang = currentLanguage()) {
+        panels.forEach(panel => {
+          const frame = panel.querySelector('iframe');
+          if (frame?.src && frame.contentWindow) {
+            frame.contentWindow.postMessage({ type: 'pdf-toolkit-language', lang }, '*');
+          }
+        });
+      }
+
+      function loadPanel(panel) {
+        const frame = panel.querySelector('iframe');
+        if (!frame.src) {
+          frame.addEventListener('load', () => {
+            const note = panel.querySelector('.loading-note');
+            if (note) note.remove();
+            frame.contentWindow?.postMessage(
+              { type: 'pdf-toolkit-language', lang: currentLanguage() },
+              '*'
+            );
+          }, { once: true });
+          const separator = frame.dataset.src.includes('?') ? '&' : '?';
+          frame.src = `${frame.dataset.src}${separator}lang=${encodeURIComponent(currentLanguage())}`;
+        }
+      }
+
+      function activate(tool, updateHash = true) {
+        if (!validTools.has(tool)) tool = 'jpeg';
+
+        buttons.forEach(button => {
+          const active = button.dataset.tool === tool;
+          button.setAttribute('aria-selected', String(active));
+          button.tabIndex = active ? 0 : -1;
+        });
+
+        panels.forEach(panel => {
+          const active = panel.dataset.panel === tool;
+          panel.classList.toggle('active', active);
+          if (active) loadPanel(panel);
+        });
+
+        if (updateHash) history.replaceState(null, '', `#${tool}`);
+      }
+
+      buttons.forEach((button, index) => {
+        button.addEventListener('click', () => activate(button.dataset.tool));
+        button.addEventListener('keydown', event => {
+          if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+          event.preventDefault();
+          const direction = event.key === 'ArrowRight' ? 1 : -1;
+          const next = (index + direction + buttons.length) % buttons.length;
+          buttons[next].focus();
+          activate(buttons[next].dataset.tool);
+        });
+      });
+
+      languageButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          const lang = button.dataset.langButton;
+          window.PDFToolkitI18n?.setLanguage?.(lang);
+          updateLanguageButtons(lang);
+          notifyFrames(lang);
+        });
+      });
+
+      window.addEventListener('pdf-toolkit-language-change', event => {
+        const lang = event.detail?.lang || currentLanguage();
+        updateLanguageButtons(lang);
+        notifyFrames(lang);
+      });
+
+      window.addEventListener('hashchange', () => activate(location.hash.slice(1), false));
+      updateLanguageButtons();
+      activate(location.hash.slice(1) || 'jpeg', false);
+    })();
+  </script>
+</body>
+</html>
